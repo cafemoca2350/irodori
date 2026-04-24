@@ -1,4 +1,4 @@
-use windows::Win32::Graphics::Gdi::{GetDC, SetDeviceGammaRamp};
+use windows::Win32::Graphics::Gdi::{self, GetDC, SetDeviceGammaRamp};
 use ddc_winapi::Monitor;
 use nvapi::NvApi;
 use serde::Serialize;
