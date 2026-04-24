@@ -1,6 +1,6 @@
 {
   "identifier": "allow-custom-commands",
-  "description": "Allows executing custom commands in the main app",
+  "description": "Allows custom commands",
   "commands": [
     "set_gamma",
     "set_digital_vibrance",
