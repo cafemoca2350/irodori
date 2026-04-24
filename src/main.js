@@ -67,59 +67,56 @@ function updateActivePresetValue(key, val) {
   }
 }
 
-async function updateBrightness(val, skipSlider = false) {
+// Apply all settings to Rust backend at once
+async function applyAllSettings() {
+  try {
+    await invoke('apply_color_settings', {
+      settings: {
+        brightness: parseFloat(brightnessSlider.value),
+        contrast: parseFloat(contrastSlider.value),
+        gamma: parseFloat(gammaSlider.value),
+        vibrance: parseFloat(vibranceSlider.value),
+        hue: parseFloat(hueSlider.value)
+      }
+    });
+  } catch (e) {
+    console.error('[iRodoRi] 設定の適用に失敗:', e);
+  }
+}
+
+function updateBrightness(val, skipSlider = false) {
   brightnessVal.textContent = `${val}%`;
   if (!skipSlider) brightnessSlider.value = val;
   updateActivePresetValue('brightness', val);
-  try {
-    await invoke('set_monitor_brightness', { value: parseInt(val) });
-  } catch (e) {
-    console.error(e);
-  }
+  applyAllSettings();
 }
 
-async function updateContrast(val, skipSlider = false) {
+function updateContrast(val, skipSlider = false) {
   contrastVal.textContent = `${val}%`;
   if (!skipSlider) contrastSlider.value = val;
   updateActivePresetValue('contrast', val);
-  try {
-    await invoke('set_monitor_contrast', { value: parseInt(val) });
-  } catch (e) {
-    console.error(e);
-  }
+  applyAllSettings();
 }
 
-async function updateGamma(val, skipSlider = false) {
+function updateGamma(val, skipSlider = false) {
   gammaVal.textContent = parseFloat(val).toFixed(2);
   if (!skipSlider) gammaSlider.value = val;
   updateActivePresetValue('gamma', val);
-  try {
-    await invoke('set_gamma', { gamma: parseFloat(val) });
-  } catch (e) {
-    console.error(e);
-  }
+  applyAllSettings();
 }
 
-async function updateVibrance(val, skipSlider = false) {
+function updateVibrance(val, skipSlider = false) {
   vibranceVal.textContent = `${val}%`;
   if (!skipSlider) vibranceSlider.value = val;
   updateActivePresetValue('vibrance', val);
-  try {
-    await invoke('set_digital_vibrance', { value: parseInt(val) });
-  } catch (e) {
-    console.error(e);
-  }
+  applyAllSettings();
 }
 
-async function updateHue(val, skipSlider = false) {
+function updateHue(val, skipSlider = false) {
   hueVal.textContent = `${val}°`;
   if (!skipSlider) hueSlider.value = val;
   updateActivePresetValue('hue', val);
-  try {
-    await invoke('set_hue', { value: parseInt(val) });
-  } catch (e) {
-    console.error(e);
-  }
+  applyAllSettings();
 }
 
 // Sliders (User Interaction)

@@ -20,15 +20,6 @@
   </div>
 
   <main>
-    <section id="status-panel">
-      <div class="status-item" id="status-monitor">
-        <span class="status-text">モニター: 接続中</span>
-      </div>
-      <div class="status-item" id="status-gpu">
-        <span class="status-text">NVIDIA GPU: 検出済み</span>
-      </div>
-    </section>
-
     <section id="simple-mode">
       <div class="preset-header">
         <h2>クイックプリセット</h2>
@@ -48,14 +39,14 @@
           <!-- Sliders here -->
           <div class="slider-container">
             <div class="slider-header">
-              <span>明るさ (DDC/CI)</span>
+              <span>明るさ</span>
               <span class="slider-value" id="brightness-val">50%</span>
             </div>
             <input type="range" id="brightness-slider" min="0" max="100" value="50">
           </div>
           <div class="slider-container">
             <div class="slider-header">
-              <span>コントラスト (DDC/CI)</span>
+              <span>コントラスト</span>
               <span class="slider-value" id="contrast-val">50%</span>
             </div>
             <input type="range" id="contrast-slider" min="0" max="100" value="50">
