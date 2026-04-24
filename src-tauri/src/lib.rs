@@ -9,8 +9,8 @@ struct ColorSettings {
     brightness: f32,  // 0-100, default 50
     contrast: f32,    // 0-100, default 50
     gamma: f32,       // 0.5-2.0, default 1.0
-    vibrance: f32,    // 0-100, default 50
-    hue: f32,         // 0-360, default 0
+    vibrance: f32,    // 0-100, default 50 (reserved)
+    hue: f32,         // 0-360, default 0 (reserved)
 }
 
 #[tauri::command]
@@ -21,33 +21,46 @@ fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
             return Err("Failed to get DC".to_string());
         }
 
-        // Normalize parameters
-        let brightness = (settings.brightness - 50.0) / 100.0; // -0.5 to 0.5
-        let contrast = settings.contrast / 50.0;                // 0.0 to 2.0
-        let gamma = settings.gamma;                              // 0.5 to 2.0
+        // Normalize parameters to safe ranges
+        // Brightness: map 0-100 to -0.3..+0.3 (conservative to stay within Windows limits)
+        let brightness = (settings.brightness - 50.0) / 50.0 * 0.3;
+        // Contrast: map 0-100 to 0.5..1.5
+        let contrast = 0.5 + (settings.contrast / 100.0);
+        // Gamma: 0.5..2.0, used directly
+        let gamma = settings.gamma.max(0.3).min(3.0);
 
         let mut ramp = [0u16; 768];
+        let mut prev_r: u16 = 0;
+        let mut prev_g: u16 = 0;
+        let mut prev_b: u16 = 0;
+
         for i in 0..256 {
             let normalized = i as f32 / 255.0;
 
-            // Apply gamma correction
-            let gamma_corrected = if gamma <= 0.0 { 0.0 } else { normalized.powf(1.0 / gamma) };
+            // Step 1: Apply gamma correction
+            let gamma_val = normalized.powf(1.0 / gamma);
 
-            // Apply contrast (scale around midpoint)
-            let contrasted = ((gamma_corrected - 0.5) * contrast) + 0.5;
+            // Step 2: Apply contrast (scale around 0.5)
+            let contrast_val = (gamma_val - 0.5) * contrast + 0.5;
 
-            // Apply brightness (offset)
-            let final_val = contrasted + brightness;
+            // Step 3: Apply brightness (offset)
+            let final_val = (contrast_val + brightness).max(0.0).min(1.0);
 
-            // Clamp and convert to u16
-            let clamped = final_val.max(0.0).min(1.0);
-            let val = (clamped * 65535.0) as u16;
+            // Convert to u16, clamping to safe range
+            let raw = (final_val * 65535.0) as u16;
 
-            // For now, apply same curve to all channels
-            // (hue and vibrance would need per-channel adjustment)
-            ramp[i] = val;         // R
-            ramp[i + 256] = val;   // G
-            ramp[i + 512] = val;   // B
+            // Ensure monotonically increasing (Windows requirement)
+            let r = raw.max(prev_r);
+            let g = raw.max(prev_g);
+            let b = raw.max(prev_b);
+
+            ramp[i] = r;
+            ramp[i + 256] = g;
+            ramp[i + 512] = b;
+
+            prev_r = r;
+            prev_g = g;
+            prev_b = b;
         }
 
         if SetDeviceGammaRamp(dc, ramp.as_mut_ptr() as *mut _) == 0 {
