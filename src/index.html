@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>iRodoRi</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="titlebar" data-tauri-drag-region>
+    <div id="titlebar-label" data-tauri-drag-region>iRodoRi</div>
+    <div class="titlebar-controls">
+      <div class="titlebar-button" id="titlebar-minimize">
+        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="5.5" width="10" height="1" fill="white"/></svg>
+      </div>
+      <div class="titlebar-button" id="titlebar-close">
+        <svg width="12" height="12" viewBox="0 0 12 12"><path d="M1 1L11 11M11 1L1 11" stroke="white" stroke-width="1.5"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <main>
+    <section id="status-panel">
+      <div class="status-item" id="status-monitor">
+        <span class="status-text">モニター: 接続中</span>
+      </div>
+      <div class="status-item" id="status-gpu">
+        <span class="status-text">NVIDIA GPU: 検出済み</span>
+      </div>
+    </section>
+
+    <section id="simple-mode">
+      <div class="preset-header">
+        <h2>クイックプリセット</h2>
+        <button id="add-preset-btn" class="action-btn">＋ プリセットを追加</button>
+      </div>
+      <div class="hero-presets" id="presets-list">
+        <!-- JSで動的に生成されます -->
+      </div>
+    </section>
+
+    <section id="advanced-mode" class="collapsed">
+      <div class="section-header" id="toggle-advanced">
+        <h2>詳細設定</h2>
+      </div>
+      <div class="advanced-content">
+        <div class="control-group">
+          <!-- Sliders here -->
+          <div class="slider-container">
+            <div class="slider-header">
+              <span>明るさ (DDC/CI)</span>
+              <span class="slider-value" id="brightness-val">50%</span>
+            </div>
+            <input type="range" id="brightness-slider" min="0" max="100" value="50">
+          </div>
+          <div class="slider-container">
+            <div class="slider-header">
+              <span>コントラスト (DDC/CI)</span>
+              <span class="slider-value" id="contrast-val">50%</span>
+            </div>
+            <input type="range" id="contrast-slider" min="0" max="100" value="50">
+          </div>
+          <div class="slider-container">
+            <div class="slider-header">
+              <span>ガンマ値</span>
+              <span class="slider-value" id="gamma-val">1.0</span>
+            </div>
+            <input type="range" id="gamma-slider" min="0.5" max="2.0" step="0.01" value="1.0">
+          </div>
+          <div class="slider-container">
+            <div class="slider-header">
+              <span>彩度 (Digital Vibrance)</span>
+              <span class="slider-value" id="vibrance-val">50%</span>
+            </div>
+            <input type="range" id="vibrance-slider" min="0" max="100" value="50">
+          </div>
+          <div class="slider-container">
+            <div class="slider-header">
+              <span>色相 (Hue)</span>
+              <span class="slider-value" id="hue-val">0°</span>
+            </div>
+            <input type="range" id="hue-slider" min="0" max="360" value="0">
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    &copy; 2026 iRodoRi - Display Optimizer
+  </footer>
+
+  <script src="main.js"></script>
+</body>
+</html>
