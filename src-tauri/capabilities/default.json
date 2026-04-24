@@ -6,9 +6,6 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "allow-set-gamma",
-    "allow-set-digital-vibrance",
-    "allow-set-monitor-brightness",
-    "allow-set-monitor-contrast"
+    "allow-custom-commands"
   ]
 }
