@@ -1,10 +1,11 @@
-use windows::Win32::Graphics::Gdi::{GetDC, SetDeviceGammaRamp};
-use windows::Win32::Foundation::HWND;
+use winapi::um::wingdi::SetDeviceGammaRamp;
+use winapi::um::winuser::GetDC;
+use winapi::shared::windef::HWND;
 use ddc_winapi::Monitor;
 use nvapi::NvApi;
 use serde::Serialize;
 use tauri::{Emitter, Manager};
-use std::ffi::c_void;
+use std::ptr;
 
 #[derive(Serialize)]
 pub struct DisplayInfo {
@@ -14,9 +15,9 @@ pub struct DisplayInfo {
 #[tauri::command]
 fn set_gamma(gamma: f32) -> Result<(), String> {
     unsafe {
-        // HWND::default() を使用してデスクトップ全体の DC を取得
-        let dc = GetDC(HWND::default());
-        if dc.is_invalid() {
+        // デスクトップ全体のデバイスコンテキストを取得
+        let dc = GetDC(ptr::null_mut());
+        if dc.is_null() {
             return Err("Failed to get DC".to_string());
         }
 
@@ -25,7 +26,6 @@ fn set_gamma(gamma: f32) -> Result<(), String> {
             let val = if gamma <= 0.0 {
                 0
             } else {
-                // ガンマ補正曲線の計算
                 let v = (i as f32 / 255.0).powf(1.0 / gamma) * 65535.0;
                 v.min(65535.0) as u16
             };
@@ -34,8 +34,8 @@ fn set_gamma(gamma: f32) -> Result<(), String> {
             ramp[i + 512] = val;   // B
         }
 
-        // ポインタのキャストを明示的に行う
-        if SetDeviceGammaRamp(dc, ramp.as_ptr() as *const c_void).is_err() {
+        // winapi を使用してガンマ値を設定
+        if SetDeviceGammaRamp(dc, ramp.as_mut_ptr() as *mut _) == 0 {
             return Err("Failed to set gamma ramp".to_string());
         }
     }
