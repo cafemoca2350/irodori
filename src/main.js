@@ -31,6 +31,16 @@ try {
   console.error("[iRodoRi] 初期化エラー（UIは動作を続けます）:", e);
 }
 
+// Diagnostic: test if gamma ramp API works at all
+(async () => {
+  try {
+    const result = await invoke('test_gamma', {});
+    console.log("[iRodoRi] ガンマテスト結果:", result);
+  } catch (e) {
+    console.error("[iRodoRi] ガンマテスト失敗:", e);
+  }
+})();
+
 // Elements
 const brightnessSlider = document.getElementById('brightness-slider');
 const contrastSlider = document.getElementById('contrast-slider');

@@ -1,7 +1,7 @@
 use winapi::um::wingdi::{GetDeviceGammaRamp, SetDeviceGammaRamp};
 use winapi::um::winuser::{GetDC, ReleaseDC};
 use winapi::um::errhandlingapi::GetLastError;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 use std::ptr;
 
@@ -14,11 +14,55 @@ struct GammaRamp {
 
 #[derive(Deserialize)]
 struct ColorSettings {
-    brightness: f32,  // 0-100, default 50
-    contrast: f32,    // 0-100, default 50
-    gamma: f32,       // 0.3-2.8, default 1.0
-    vibrance: f32,    // reserved for NVAPI
-    hue: f32,         // reserved for NVAPI
+    brightness: f32,
+    contrast: f32,
+    gamma: f32,
+    vibrance: f32,
+    hue: f32,
+}
+
+/// Diagnostic: try to read and immediately write back the current gamma ramp
+#[tauri::command]
+fn test_gamma() -> Result<String, String> {
+    unsafe {
+        let hwnd = ptr::null_mut();
+        let dc = GetDC(hwnd);
+        if dc.is_null() {
+            return Err(format!("GetDC failed (error: {})", GetLastError()));
+        }
+
+        let mut ramp = GammaRamp {
+            red: [0u16; 256],
+            green: [0u16; 256],
+            blue: [0u16; 256],
+        };
+
+        // Step 1: Read current ramp
+        let get_result = GetDeviceGammaRamp(dc, &mut ramp as *mut GammaRamp as *mut _);
+        if get_result == 0 {
+            let err = GetLastError();
+            ReleaseDC(hwnd, dc);
+            return Err(format!("GetDeviceGammaRamp failed (error: {})", err));
+        }
+
+        let info = format!(
+            "Current ramp: R[0]={}, R[128]={}, R[255]={}, G[0]={}, G[255]={}, B[0]={}, B[255]={}",
+            ramp.red[0], ramp.red[128], ramp.red[255],
+            ramp.green[0], ramp.green[255],
+            ramp.blue[0], ramp.blue[255]
+        );
+
+        // Step 2: Write it back unchanged
+        let set_result = SetDeviceGammaRamp(dc, &mut ramp as *mut GammaRamp as *mut _);
+        let err = GetLastError();
+        ReleaseDC(hwnd, dc);
+
+        if set_result == 0 {
+            return Err(format!("SetDeviceGammaRamp failed even with unchanged ramp (error: {}). {}", err, info));
+        }
+
+        Ok(format!("Gamma ramp test PASSED. {}", info))
+    }
 }
 
 #[tauri::command]
@@ -31,20 +75,8 @@ fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
         }
 
         let gamma = settings.gamma.max(0.3).min(2.8);
-
-        // Brightness: map 0-100 to a gamma-like adjustment
-        // 50 = neutral (effective gamma multiplier = 1.0)
-        // 0  = darker  (effective gamma multiplier ~1.5)
-        // 100 = brighter (effective gamma multiplier ~0.6)
         let brightness_gamma = 1.0 + (50.0 - settings.brightness) / 100.0;
-
-        // Contrast: map 0-100 to a curve steepness factor
-        // 50 = neutral (factor = 1.0)
-        // 0  = flat curve (factor = 0.5)
-        // 100 = steep curve (factor = 1.5)
         let contrast_factor = 0.5 + (settings.contrast / 100.0);
-
-        // Combined effective gamma
         let effective_gamma = gamma * brightness_gamma;
 
         let mut new_ramp = GammaRamp {
@@ -55,31 +87,18 @@ fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
 
         for i in 0..256 {
             let normalized = i as f32 / 255.0;
-
-            // Step 1: Apply combined gamma (always keeps 0->0 and 1->1)
             let gamma_val = normalized.powf(1.0 / effective_gamma);
-
-            // Step 2: Apply contrast (S-curve around 0.5, keeps endpoints)
             let contrasted = ((gamma_val - 0.5) * contrast_factor + 0.5)
                 .max(0.0)
                 .min(1.0);
-
-            // Convert to u16 (endpoints: 0->0, 255->65535)
             let val = (contrasted * 65535.0) as u16;
-
-            // Ensure monotonically increasing
-            let final_val = if i > 0 {
-                val.max(new_ramp.red[i - 1])
-            } else {
-                val
-            };
+            let final_val = if i > 0 { val.max(new_ramp.red[i - 1]) } else { val };
 
             new_ramp.red[i] = final_val;
             new_ramp.green[i] = final_val;
             new_ramp.blue[i] = final_val;
         }
 
-        // Force endpoints to exact values (critical for driver acceptance)
         new_ramp.red[0] = 0; new_ramp.green[0] = 0; new_ramp.blue[0] = 0;
         new_ramp.red[255] = 65535; new_ramp.green[255] = 65535; new_ramp.blue[255] = 65535;
 
@@ -89,8 +108,8 @@ fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
 
         if result == 0 {
             return Err(format!(
-                "Failed to set gamma ramp (error: {}, gamma: {:.2}, eff_gamma: {:.2}, contrast: {:.2})",
-                err, gamma, effective_gamma, contrast_factor
+                "Failed to set gamma ramp (error: {}, eff_gamma: {:.2})",
+                err, effective_gamma
             ));
         }
     }
@@ -136,7 +155,7 @@ pub fn run() {
                 .build(app)?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![apply_color_settings])
+        .invoke_handler(tauri::generate_handler![apply_color_settings, test_gamma])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
