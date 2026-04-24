@@ -1,4 +1,5 @@
-use winapi::um::wingdi::{CreateDCA, DeleteDC, SetDeviceGammaRamp};
+use winapi::um::wingdi::{GetDeviceGammaRamp, SetDeviceGammaRamp};
+use winapi::um::winuser::{GetDC, ReleaseDC};
 use winapi::um::errhandlingapi::GetLastError;
 use serde::Deserialize;
 use tauri::{Emitter, Manager};
@@ -23,62 +24,74 @@ struct ColorSettings {
 #[tauri::command]
 fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
     unsafe {
-        // Get DC for the primary display device directly
-        let dc = CreateDCA(
-            b"DISPLAY\0".as_ptr() as *const i8,
-            ptr::null(),
-            ptr::null(),
-            ptr::null(),
-        );
+        let hwnd = ptr::null_mut();
+        let dc = GetDC(hwnd);
         if dc.is_null() {
-            let err = GetLastError();
-            return Err(format!("Failed to get display DC (error: {})", err));
+            return Err(format!("Failed to get DC (error: {})", GetLastError()));
         }
 
-        // Normalize parameters
-        let brightness = (settings.brightness - 50.0) / 50.0 * 0.3;
-        let contrast = 0.5 + (settings.contrast / 100.0);
+        // First, read the current gamma ramp as a baseline
+        let mut current_ramp = GammaRamp {
+            red: [0u16; 256],
+            green: [0u16; 256],
+            blue: [0u16; 256],
+        };
+        GetDeviceGammaRamp(dc, &mut current_ramp as *mut GammaRamp as *mut _);
+
+        // Build the identity ramp (what "default" looks like)
+        // Then apply our adjustments on top
+        let brightness = (settings.brightness - 50.0) / 100.0 * 0.5; // -0.25 to +0.25
+        let contrast = 0.6 + (settings.contrast / 100.0) * 0.8;      // 0.6 to 1.4
         let gamma = settings.gamma.max(0.3).min(2.8);
 
-        let mut ramp = GammaRamp {
+        let mut new_ramp = GammaRamp {
             red: [0u16; 256],
             green: [0u16; 256],
             blue: [0u16; 256],
         };
 
-        let mut prev: u16 = 0;
         for i in 0..256 {
             let normalized = i as f32 / 255.0;
 
-            // Gamma correction
-            let gamma_val = normalized.powf(1.0 / gamma);
+            // Apply gamma
+            let g = normalized.powf(1.0 / gamma);
 
-            // Contrast (scale around midpoint)
-            let contrast_val = (gamma_val - 0.5) * contrast + 0.5;
+            // Apply contrast
+            let c = ((g - 0.5) * contrast + 0.5).max(0.0).min(1.0);
 
-            // Brightness (offset)
-            let final_val = (contrast_val + brightness).max(0.0).min(1.0);
+            // Apply brightness
+            let b = (c + brightness).max(0.0).min(1.0);
 
-            let raw = (final_val * 65535.0) as u16;
+            let val = (b * 65535.0) as u16;
+
+            // Ensure value doesn't deviate more than ~50% from identity
+            let identity = (i as u32 * 257) as u16; // identity ramp: 0, 257, 514, ...
+            let max_dev: i32 = 32768;
+            let clamped = (val as i32)
+                .max(identity as i32 - max_dev)
+                .min(identity as i32 + max_dev)
+                .max(0)
+                .min(65535) as u16;
 
             // Ensure monotonically increasing
-            let val = raw.max(prev);
+            let final_val = if i > 0 {
+                clamped.max(new_ramp.red[i - 1])
+            } else {
+                clamped
+            };
 
-            ramp.red[i] = val;
-            ramp.green[i] = val;
-            ramp.blue[i] = val;
-
-            prev = val;
+            new_ramp.red[i] = final_val;
+            new_ramp.green[i] = final_val;
+            new_ramp.blue[i] = final_val;
         }
 
-        let result = SetDeviceGammaRamp(dc, &mut ramp as *mut GammaRamp as *mut _);
-        let last_err = GetLastError();
-
-        // Always clean up the DC
-        DeleteDC(dc);
+        let result = SetDeviceGammaRamp(dc, &mut new_ramp as *mut GammaRamp as *mut _);
+        let err = GetLastError();
+        ReleaseDC(hwnd, dc);
 
         if result == 0 {
-            return Err(format!("Failed to set gamma ramp (error: {})", last_err));
+            return Err(format!("Failed to set gamma ramp (error: {}, brightness: {}, contrast: {}, gamma: {})",
+                err, settings.brightness, settings.contrast, settings.gamma));
         }
     }
     Ok(())
@@ -104,18 +117,10 @@ pub fn run() {
                 .menu(&menu)
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        "preset_gaming" => {
-                            let _ = app.emit("set-preset", "gaming");
-                        }
-                        "preset_cinema" => {
-                            let _ = app.emit("set-preset", "cinema");
-                        }
-                        "preset_default" => {
-                            let _ = app.emit("set-preset", "default");
-                        }
+                        "quit" => { app.exit(0); }
+                        "preset_gaming" => { let _ = app.emit("set-preset", "gaming"); }
+                        "preset_cinema" => { let _ = app.emit("set-preset", "cinema"); }
+                        "preset_default" => { let _ = app.emit("set-preset", "default"); }
                         _ => {}
                     }
                 })
@@ -131,9 +136,7 @@ pub fn run() {
                 .build(app)?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            apply_color_settings
-        ])
+        .invoke_handler(tauri::generate_handler![apply_color_settings])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
