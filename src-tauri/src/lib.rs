@@ -27,7 +27,7 @@ fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
         // Contrast: map 0-100 to 0.5..1.5
         let contrast = 0.5 + (settings.contrast / 100.0);
         // Gamma: 0.5..2.0, used directly
-        let gamma = settings.gamma.max(0.3).min(3.0);
+        let gamma = settings.gamma.max(0.3).min(2.8);
 
         let mut ramp = [0u16; 768];
         let mut prev_r: u16 = 0;
