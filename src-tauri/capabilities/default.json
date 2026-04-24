@@ -5,6 +5,10 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "opener:default"
+    "opener:default",
+    "allow-set-gamma",
+    "allow-set-digital-vibrance",
+    "allow-set-monitor-brightness",
+    "allow-set-monitor-contrast"
   ]
 }

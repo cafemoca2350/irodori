@@ -1,9 +1,25 @@
 console.log("[iRodoRi] アプリケーションを起動中...");
 
-const isTauri = typeof window !== 'undefined' && window.__TAURI__ !== undefined;
-const invoke = isTauri ? window.__TAURI__.core.invoke : async (cmd, args) => { console.log(`[Mock] ${cmd} 実行:`, args); return null; };
-const listen = isTauri ? window.__TAURI__.event.listen : () => {};
-const getCurrentWindow = isTauri ? window.__TAURI__.window.getCurrentWindow : () => ({ minimize: () => {}, close: () => {} });
+// Tauri 2.0 API Detection
+let isTauri = false;
+let invoke = async (cmd, args) => { console.log(`[Mock] ${cmd} 実行:`, args); return null; };
+let listen = () => {};
+let getCurrentWindow = () => ({ minimize: () => {}, close: () => {} });
+
+if (typeof window !== 'undefined' && window.__TAURI__) {
+  console.log("[iRodoRi] Tauri 環境を検出しました");
+  isTauri = true;
+  try {
+    const tauri = window.__TAURI__;
+    invoke = tauri.core.invoke;
+    listen = tauri.event.listen;
+    getCurrentWindow = tauri.window.getCurrentWindow;
+  } catch (e) {
+    console.error("[iRodoRi] Tauri API の取得に失敗しました:", e);
+  }
+} else {
+  console.log("[iRodoRi] ブラウザ環境（モックモード）で動作中");
+}
 
 const appWindow = getCurrentWindow();
 
