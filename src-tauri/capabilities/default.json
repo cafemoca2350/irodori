@@ -6,6 +6,6 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "irodori:allow-custom-commands"
+    "irodori:default"
   ]
 }
