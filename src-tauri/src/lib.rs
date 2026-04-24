@@ -1,70 +1,84 @@
-use winapi::um::wingdi::SetDeviceGammaRamp;
-use winapi::um::winuser::GetDC;
+use winapi::um::wingdi::{CreateDCA, DeleteDC, SetDeviceGammaRamp};
+use winapi::um::errhandlingapi::GetLastError;
 use serde::Deserialize;
 use tauri::{Emitter, Manager};
 use std::ptr;
 
+#[repr(C)]
+struct GammaRamp {
+    red: [u16; 256],
+    green: [u16; 256],
+    blue: [u16; 256],
+}
+
 #[derive(Deserialize)]
 struct ColorSettings {
-    brightness: f32,  // 0-100, default 50
-    contrast: f32,    // 0-100, default 50
-    gamma: f32,       // 0.5-2.0, default 1.0
-    vibrance: f32,    // 0-100, default 50 (reserved)
-    hue: f32,         // 0-360, default 0 (reserved)
+    brightness: f32,
+    contrast: f32,
+    gamma: f32,
+    vibrance: f32,
+    hue: f32,
 }
 
 #[tauri::command]
 fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
     unsafe {
-        let dc = GetDC(ptr::null_mut());
+        // Get DC for the primary display device directly
+        let dc = CreateDCA(
+            b"DISPLAY\0".as_ptr() as *const i8,
+            ptr::null(),
+            ptr::null(),
+            ptr::null(),
+        );
         if dc.is_null() {
-            return Err("Failed to get DC".to_string());
+            let err = GetLastError();
+            return Err(format!("Failed to get display DC (error: {})", err));
         }
 
-        // Normalize parameters to safe ranges
-        // Brightness: map 0-100 to -0.3..+0.3 (conservative to stay within Windows limits)
+        // Normalize parameters
         let brightness = (settings.brightness - 50.0) / 50.0 * 0.3;
-        // Contrast: map 0-100 to 0.5..1.5
         let contrast = 0.5 + (settings.contrast / 100.0);
-        // Gamma: 0.5..2.0, used directly
         let gamma = settings.gamma.max(0.3).min(2.8);
 
-        let mut ramp = [0u16; 768];
-        let mut prev_r: u16 = 0;
-        let mut prev_g: u16 = 0;
-        let mut prev_b: u16 = 0;
+        let mut ramp = GammaRamp {
+            red: [0u16; 256],
+            green: [0u16; 256],
+            blue: [0u16; 256],
+        };
 
+        let mut prev: u16 = 0;
         for i in 0..256 {
             let normalized = i as f32 / 255.0;
 
-            // Step 1: Apply gamma correction
+            // Gamma correction
             let gamma_val = normalized.powf(1.0 / gamma);
 
-            // Step 2: Apply contrast (scale around 0.5)
+            // Contrast (scale around midpoint)
             let contrast_val = (gamma_val - 0.5) * contrast + 0.5;
 
-            // Step 3: Apply brightness (offset)
+            // Brightness (offset)
             let final_val = (contrast_val + brightness).max(0.0).min(1.0);
 
-            // Convert to u16, clamping to safe range
             let raw = (final_val * 65535.0) as u16;
 
-            // Ensure monotonically increasing (Windows requirement)
-            let r = raw.max(prev_r);
-            let g = raw.max(prev_g);
-            let b = raw.max(prev_b);
+            // Ensure monotonically increasing
+            let val = raw.max(prev);
 
-            ramp[i] = r;
-            ramp[i + 256] = g;
-            ramp[i + 512] = b;
+            ramp.red[i] = val;
+            ramp.green[i] = val;
+            ramp.blue[i] = val;
 
-            prev_r = r;
-            prev_g = g;
-            prev_b = b;
+            prev = val;
         }
 
-        if SetDeviceGammaRamp(dc, ramp.as_mut_ptr() as *mut _) == 0 {
-            return Err("Failed to set gamma ramp".to_string());
+        let result = SetDeviceGammaRamp(dc, &mut ramp as *mut GammaRamp as *mut _);
+        let last_err = GetLastError();
+
+        // Always clean up the DC
+        DeleteDC(dc);
+
+        if result == 0 {
+            return Err(format!("Failed to set gamma ramp (error: {})", last_err));
         }
     }
     Ok(())
