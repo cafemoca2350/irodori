@@ -1,27 +1,33 @@
 console.log("[iRodoRi] アプリケーションを起動中...");
 
-// Tauri 2.0 API Detection
+// Tauri 2.0 API Detection - 完全防御型
 let isTauri = false;
 let invoke = async (cmd, args) => { console.log(`[Mock] ${cmd} 実行:`, args); return null; };
 let listen = () => {};
-let getCurrentWindow = () => ({ minimize: () => {}, close: () => {} });
+let appWindow = { minimize: () => {}, close: () => {} };
 
-if (typeof window !== 'undefined' && window.__TAURI__) {
-  console.log("[iRodoRi] Tauri 環境を検出しました");
-  isTauri = true;
-  try {
+try {
+  if (typeof window !== 'undefined' && window.__TAURI__) {
+    console.log("[iRodoRi] Tauri 環境を検出しました");
+    isTauri = true;
     const tauri = window.__TAURI__;
-    invoke = tauri.core.invoke;
-    listen = tauri.event.listen;
-    getCurrentWindow = tauri.window.getCurrentWindow;
-  } catch (e) {
-    console.error("[iRodoRi] Tauri API の取得に失敗しました:", e);
-  }
-} else {
-  console.log("[iRodoRi] ブラウザ環境（モックモード）で動作中");
-}
 
-const appWindow = getCurrentWindow();
+    if (tauri.core && typeof tauri.core.invoke === 'function') {
+      invoke = tauri.core.invoke;
+    }
+    if (tauri.event && typeof tauri.event.listen === 'function') {
+      listen = tauri.event.listen;
+    }
+    if (tauri.window && typeof tauri.window.getCurrentWindow === 'function') {
+      appWindow = tauri.window.getCurrentWindow();
+    }
+    console.log("[iRodoRi] Tauri API 取得完了");
+  } else {
+    console.log("[iRodoRi] ブラウザ環境（モックモード）で動作中");
+  }
+} catch (e) {
+  console.error("[iRodoRi] 初期化エラー（UIは動作を続けます）:", e);
+}
 
 // Elements
 const brightnessSlider = document.getElementById('brightness-slider');
