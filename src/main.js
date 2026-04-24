@@ -67,21 +67,27 @@ function updateActivePresetValue(key, val) {
   }
 }
 
-// Apply all settings to Rust backend at once
-async function applyAllSettings() {
-  try {
-    await invoke('apply_color_settings', {
-      settings: {
-        brightness: parseFloat(brightnessSlider.value),
-        contrast: parseFloat(contrastSlider.value),
-        gamma: parseFloat(gammaSlider.value),
-        vibrance: parseFloat(vibranceSlider.value),
-        hue: parseFloat(hueSlider.value)
-      }
-    });
-  } catch (e) {
-    console.error('[iRodoRi] 設定の適用に失敗:', e);
-  }
+// Apply all settings to Rust backend (throttled to 1 call per frame)
+let pendingApply = false;
+function applyAllSettings() {
+  if (pendingApply) return;
+  pendingApply = true;
+  requestAnimationFrame(async () => {
+    pendingApply = false;
+    try {
+      await invoke('apply_color_settings', {
+        settings: {
+          brightness: parseFloat(brightnessSlider.value),
+          contrast: parseFloat(contrastSlider.value),
+          gamma: parseFloat(gammaSlider.value),
+          vibrance: parseFloat(vibranceSlider.value),
+          hue: parseFloat(hueSlider.value)
+        }
+      });
+    } catch (e) {
+      console.error('[iRodoRi] 設定の適用に失敗:', e);
+    }
+  });
 }
 
 function updateBrightness(val, skipSlider = false) {
