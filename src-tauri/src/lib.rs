@@ -14,11 +14,11 @@ struct GammaRamp {
 
 #[derive(Deserialize)]
 struct ColorSettings {
-    brightness: f32,
-    contrast: f32,
-    gamma: f32,
-    vibrance: f32,
-    hue: f32,
+    brightness: f32,  // 0-100, default 50
+    contrast: f32,    // 0-100, default 50
+    gamma: f32,       // 0.3-2.8, default 1.0
+    vibrance: f32,    // reserved for NVAPI
+    hue: f32,         // reserved for NVAPI
 }
 
 #[tauri::command]
@@ -30,19 +30,22 @@ fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
             return Err(format!("Failed to get DC (error: {})", GetLastError()));
         }
 
-        // First, read the current gamma ramp as a baseline
-        let mut current_ramp = GammaRamp {
-            red: [0u16; 256],
-            green: [0u16; 256],
-            blue: [0u16; 256],
-        };
-        GetDeviceGammaRamp(dc, &mut current_ramp as *mut GammaRamp as *mut _);
-
-        // Build the identity ramp (what "default" looks like)
-        // Then apply our adjustments on top
-        let brightness = (settings.brightness - 50.0) / 100.0 * 0.5; // -0.25 to +0.25
-        let contrast = 0.6 + (settings.contrast / 100.0) * 0.8;      // 0.6 to 1.4
         let gamma = settings.gamma.max(0.3).min(2.8);
+
+        // Brightness: map 0-100 to a gamma-like adjustment
+        // 50 = neutral (effective gamma multiplier = 1.0)
+        // 0  = darker  (effective gamma multiplier ~1.5)
+        // 100 = brighter (effective gamma multiplier ~0.6)
+        let brightness_gamma = 1.0 + (50.0 - settings.brightness) / 100.0;
+
+        // Contrast: map 0-100 to a curve steepness factor
+        // 50 = neutral (factor = 1.0)
+        // 0  = flat curve (factor = 0.5)
+        // 100 = steep curve (factor = 1.5)
+        let contrast_factor = 0.5 + (settings.contrast / 100.0);
+
+        // Combined effective gamma
+        let effective_gamma = gamma * brightness_gamma;
 
         let mut new_ramp = GammaRamp {
             red: [0u16; 256],
@@ -53,31 +56,22 @@ fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
         for i in 0..256 {
             let normalized = i as f32 / 255.0;
 
-            // Apply gamma
-            let g = normalized.powf(1.0 / gamma);
+            // Step 1: Apply combined gamma (always keeps 0->0 and 1->1)
+            let gamma_val = normalized.powf(1.0 / effective_gamma);
 
-            // Apply contrast
-            let c = ((g - 0.5) * contrast + 0.5).max(0.0).min(1.0);
+            // Step 2: Apply contrast (S-curve around 0.5, keeps endpoints)
+            let contrasted = ((gamma_val - 0.5) * contrast_factor + 0.5)
+                .max(0.0)
+                .min(1.0);
 
-            // Apply brightness
-            let b = (c + brightness).max(0.0).min(1.0);
-
-            let val = (b * 65535.0) as u16;
-
-            // Ensure value doesn't deviate more than ~50% from identity
-            let identity = (i as u32 * 257) as u16; // identity ramp: 0, 257, 514, ...
-            let max_dev: i32 = 32768;
-            let clamped = (val as i32)
-                .max(identity as i32 - max_dev)
-                .min(identity as i32 + max_dev)
-                .max(0)
-                .min(65535) as u16;
+            // Convert to u16 (endpoints: 0->0, 255->65535)
+            let val = (contrasted * 65535.0) as u16;
 
             // Ensure monotonically increasing
             let final_val = if i > 0 {
-                clamped.max(new_ramp.red[i - 1])
+                val.max(new_ramp.red[i - 1])
             } else {
-                clamped
+                val
             };
 
             new_ramp.red[i] = final_val;
@@ -85,13 +79,19 @@ fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
             new_ramp.blue[i] = final_val;
         }
 
+        // Force endpoints to exact values (critical for driver acceptance)
+        new_ramp.red[0] = 0; new_ramp.green[0] = 0; new_ramp.blue[0] = 0;
+        new_ramp.red[255] = 65535; new_ramp.green[255] = 65535; new_ramp.blue[255] = 65535;
+
         let result = SetDeviceGammaRamp(dc, &mut new_ramp as *mut GammaRamp as *mut _);
         let err = GetLastError();
         ReleaseDC(hwnd, dc);
 
         if result == 0 {
-            return Err(format!("Failed to set gamma ramp (error: {}, brightness: {}, contrast: {}, gamma: {})",
-                err, settings.brightness, settings.contrast, settings.gamma));
+            return Err(format!(
+                "Failed to set gamma ramp (error: {}, gamma: {:.2}, eff_gamma: {:.2}, contrast: {:.2})",
+                err, gamma, effective_gamma, contrast_factor
+            ));
         }
     }
     Ok(())
