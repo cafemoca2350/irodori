@@ -1,3 +1,5 @@
+(function() {
+"use strict";
 console.log("[iRodoRi] アプリケーションを起動中...");
 
 // Tauri 2.0 API Detection - 完全防御型
@@ -340,3 +342,4 @@ listen('set-preset', (event) => {
   if (p) applyPreset(p.id);
 });
 
+})();
