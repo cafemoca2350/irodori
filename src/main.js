@@ -45,14 +45,10 @@ try {
 const brightnessSlider = document.getElementById('brightness-slider');
 const contrastSlider = document.getElementById('contrast-slider');
 const gammaSlider = document.getElementById('gamma-slider');
-const vibranceSlider = document.getElementById('vibrance-slider');
-const hueSlider = document.getElementById('hue-slider');
 
 const brightnessVal = document.getElementById('brightness-val');
 const contrastVal = document.getElementById('contrast-val');
 const gammaVal = document.getElementById('gamma-val');
-const vibranceVal = document.getElementById('vibrance-val');
-const hueVal = document.getElementById('hue-val');
 
 const presetsList = document.getElementById('presets-list');
 const addPresetBtn = document.getElementById('add-preset-btn');
@@ -90,8 +86,8 @@ function applyAllSettings() {
           brightness: parseFloat(brightnessSlider.value),
           contrast: parseFloat(contrastSlider.value),
           gamma: parseFloat(gammaSlider.value),
-          vibrance: parseFloat(vibranceSlider.value),
-          hue: parseFloat(hueSlider.value)
+          vibrance: 50.0,
+          hue: 0.0
         }
       });
     } catch (e) {
@@ -121,32 +117,16 @@ function updateGamma(val, skipSlider = false) {
   applyAllSettings();
 }
 
-function updateVibrance(val, skipSlider = false) {
-  vibranceVal.textContent = `${val}%`;
-  if (!skipSlider) vibranceSlider.value = val;
-  updateActivePresetValue('vibrance', val);
-  applyAllSettings();
-}
-
-function updateHue(val, skipSlider = false) {
-  hueVal.textContent = `${val}°`;
-  if (!skipSlider) hueSlider.value = val;
-  updateActivePresetValue('hue', val);
-  applyAllSettings();
-}
-
 // Sliders (User Interaction)
 brightnessSlider.addEventListener('input', (e) => updateBrightness(e.target.value, true));
 contrastSlider.addEventListener('input', (e) => updateContrast(e.target.value, true));
 gammaSlider.addEventListener('input', (e) => updateGamma(e.target.value, true));
-vibranceSlider.addEventListener('input', (e) => updateVibrance(e.target.value, true));
-hueSlider.addEventListener('input', (e) => updateHue(e.target.value, true));
 
 // Preset Management
 let presets = JSON.parse(localStorage.getItem('irodori-presets')) || [
-  { id: 'p1', name: '標準', brightness: 50, contrast: 50, gamma: 1.0, vibrance: 50, hue: 0, shortcut: null },
-  { id: 'p2', name: 'ゲーム', brightness: 80, contrast: 70, gamma: 1.2, vibrance: 80, hue: 0, shortcut: 'G' },
-  { id: 'p3', name: '映画', brightness: 40, contrast: 60, gamma: 0.8, vibrance: 60, hue: 0, shortcut: 'M' }
+  { id: 'p1', name: '標準', brightness: 50, contrast: 50, gamma: 1.0, shortcut: null },
+  { id: 'p2', name: 'ゲーム', brightness: 60, contrast: 60, gamma: 1.2, shortcut: 'G' },
+  { id: 'p3', name: '映画', brightness: 40, contrast: 55, gamma: 0.8, shortcut: 'M' }
 ];
 
 let activePresetId = localStorage.getItem('irodori-active-preset') || 'p1';
@@ -324,8 +304,6 @@ function applyPreset(id) {
   updateBrightness(p.brightness);
   updateContrast(p.contrast);
   updateGamma(p.gamma);
-  updateVibrance(p.vibrance);
-  updateHue(p.hue || 0);
 
   renderPresets();
 }
@@ -338,8 +316,6 @@ addPresetBtn.addEventListener('click', () => {
     brightness: parseInt(brightnessSlider.value),
     contrast: parseInt(contrastSlider.value),
     gamma: parseFloat(gammaSlider.value),
-    vibrance: parseInt(vibranceSlider.value),
-    hue: parseInt(hueSlider.value),
     shortcut: null
   });
   savePresets();

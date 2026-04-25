@@ -82,9 +82,11 @@ fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
         let dc = get_display_dc()?;
 
         let gamma = settings.gamma.max(0.3).min(2.8);
-        let brightness_gamma = 1.0 + (50.0 - settings.brightness) / 100.0;
+        // Brightness: 0=dark, 50=neutral, 100=bright
+        let brightness_gamma = 1.0 + (settings.brightness - 50.0) / 100.0;
+        // Contrast: 0=flat, 50=neutral, 100=high
         let contrast_factor = 0.5 + (settings.contrast / 100.0);
-        let effective_gamma = gamma * brightness_gamma;
+        let effective_gamma = (gamma * brightness_gamma).max(0.1).min(5.0);
 
         let mut new_ramp = GammaRamp {
             red: [0u16; 256],
