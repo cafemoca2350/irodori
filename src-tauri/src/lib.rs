@@ -215,9 +215,48 @@ fn test_gamma() -> Result<String, String> {
     }
 }
 
+// ===== Auto-start (Windows Registry) =====
+
+#[tauri::command]
+fn enable_autostart() -> Result<(), String> {
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("Failed to get exe path: {}", e))?;
+    let exe_path = exe.to_string_lossy().to_string();
+
+    std::process::Command::new("reg")
+        .args(["add", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+               "/v", "iRodoRi", "/t", "REG_SZ", "/d", &exe_path, "/f"])
+        .output()
+        .map_err(|e| format!("Failed to set autostart: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn disable_autostart() -> Result<(), String> {
+    std::process::Command::new("reg")
+        .args(["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+               "/v", "iRodoRi", "/f"])
+        .output()
+        .map_err(|e| format!("Failed to remove autostart: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn check_autostart() -> Result<bool, String> {
+    let output = std::process::Command::new("reg")
+        .args(["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+               "/v", "iRodoRi"])
+        .output()
+        .map_err(|e| format!("Failed to check autostart: {}", e))?;
+
+    Ok(output.status.success())
+}
+
 // ===== Tauri App =====
 
-use tauri::menu::{Menu, MenuItem};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -225,22 +264,25 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let gaming = MenuItem::with_id(app, "preset_gaming", "Gaming", true, None::<&str>)?;
-            let cinema = MenuItem::with_id(app, "preset_cinema", "Cinema", true, None::<&str>)?;
-            let default = MenuItem::with_id(app, "preset_default", "Default", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let show = MenuItem::with_id(app, "show", "表示", true, None::<&str>)?;
+            let separator = PredefinedMenuItem::separator(app)?;
+            let quit = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
 
-            let menu = Menu::with_items(app, &[&gaming, &cinema, &default, &quit])?;
+            let menu = Menu::with_items(app, &[&show, &separator, &quit])?;
 
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
+                .tooltip("iRodoRi - Display Optimizer")
                 .on_menu_event(|app, event| {
                     match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
                         "quit" => { app.exit(0); }
-                        "preset_gaming" => { let _ = app.emit("set-preset", "gaming"); }
-                        "preset_cinema" => { let _ = app.emit("set-preset", "cinema"); }
-                        "preset_default" => { let _ = app.emit("set-preset", "default"); }
                         _ => {}
                     }
                 })
@@ -259,7 +301,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             apply_color_settings,
             apply_color_effect,
-            test_gamma
+            test_gamma,
+            enable_autostart,
+            disable_autostart,
+            check_autostart
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

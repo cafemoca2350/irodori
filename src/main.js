@@ -59,9 +59,8 @@ const addPresetBtn = document.getElementById('add-preset-btn');
 const toggleAdvanced = document.getElementById('toggle-advanced');
 const advancedSection = document.getElementById('advanced-mode');
 
-// Titlebar - drag to move window, buttons for minimize/close
+// Titlebar - drag to move window, buttons hide to tray
 document.getElementById('titlebar').addEventListener('mousedown', (e) => {
-  // Don't start dragging if clicking on a button
   if (e.target.closest('.titlebar-button')) return;
   if (appWindow.startDragging) {
     appWindow.startDragging().catch(() => {});
@@ -71,18 +70,18 @@ document.getElementById('titlebar').addEventListener('mousedown', (e) => {
 document.getElementById('titlebar-minimize').addEventListener('click', async (e) => {
   e.stopPropagation();
   try {
-    await appWindow.minimize();
+    await appWindow.hide();
   } catch (err) {
-    console.error('[iRodoRi] Minimize failed:', err);
+    console.error('[iRodoRi] Hide failed:', err);
   }
 });
 
 document.getElementById('titlebar-close').addEventListener('click', async (e) => {
   e.stopPropagation();
   try {
-    await appWindow.close();
+    await appWindow.hide();
   } catch (err) {
-    console.error('[iRodoRi] Close failed:', err);
+    console.error('[iRodoRi] Hide failed:', err);
   }
 });
 
@@ -394,6 +393,32 @@ applyPreset(activePresetId);
 listen('set-preset', (event) => {
   const p = presets.find(item => item.name === event.payload);
   if (p) applyPreset(p.id);
+});
+
+// Auto-start toggle
+const autostartToggle = document.getElementById('autostart-toggle');
+(async () => {
+  try {
+    const enabled = await invoke('check_autostart', {});
+    autostartToggle.checked = enabled;
+  } catch (e) {
+    console.error('[iRodoRi] 自動起動の確認に失敗:', e);
+  }
+})();
+
+autostartToggle.addEventListener('change', async () => {
+  try {
+    if (autostartToggle.checked) {
+      await invoke('enable_autostart', {});
+      console.log('[iRodoRi] 自動起動を有効にしました');
+    } else {
+      await invoke('disable_autostart', {});
+      console.log('[iRodoRi] 自動起動を無効にしました');
+    }
+  } catch (e) {
+    console.error('[iRodoRi] 自動起動の設定に失敗:', e);
+    autostartToggle.checked = !autostartToggle.checked;
+  }
 });
 
 })();
