@@ -59,9 +59,32 @@ const addPresetBtn = document.getElementById('add-preset-btn');
 const toggleAdvanced = document.getElementById('toggle-advanced');
 const advancedSection = document.getElementById('advanced-mode');
 
-// Titlebar
-document.getElementById('titlebar-minimize').addEventListener('click', () => appWindow.minimize());
-document.getElementById('titlebar-close').addEventListener('click', () => appWindow.close());
+// Titlebar - drag to move window, buttons for minimize/close
+document.getElementById('titlebar').addEventListener('mousedown', (e) => {
+  // Don't start dragging if clicking on a button
+  if (e.target.closest('.titlebar-button')) return;
+  if (appWindow.startDragging) {
+    appWindow.startDragging().catch(() => {});
+  }
+});
+
+document.getElementById('titlebar-minimize').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  try {
+    await appWindow.minimize();
+  } catch (err) {
+    console.error('[iRodoRi] Minimize failed:', err);
+  }
+});
+
+document.getElementById('titlebar-close').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  try {
+    await appWindow.close();
+  } catch (err) {
+    console.error('[iRodoRi] Close failed:', err);
+  }
+});
 
 // Toggle Advanced
 toggleAdvanced.addEventListener('click', () => {
