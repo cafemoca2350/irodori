@@ -362,6 +362,7 @@ use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "表示", true, None::<&str>)?;
             let separator = PredefinedMenuItem::separator(app)?;
