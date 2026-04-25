@@ -6,6 +6,6 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "global-shortcut:default"
+    "global-shortcut:allow-all"
   ]
 }

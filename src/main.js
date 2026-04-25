@@ -225,6 +225,8 @@ async function syncGlobalShortcuts() {
 }
 
 function renderPresets() {
+  const adv = document.getElementById('advanced-mode');
+  if (adv) document.body.appendChild(adv); // 待避
   presetsList.innerHTML = '';
   presets.forEach(p => {
     const card = document.createElement('div');
