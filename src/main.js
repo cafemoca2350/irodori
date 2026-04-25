@@ -2,42 +2,42 @@
 "use strict";
 console.log("[iRodoRi] アプリケーションを起動中...");
 
-// Tauri 2.0 API Detection - 完全防御型
+// Tauri 2.0 API Detection
 let isTauri = false;
 let invoke = async (cmd, args) => { console.log(`[Mock] ${cmd} 実行:`, args); return null; };
 let listen = () => {};
-let appWindow = { minimize: () => {}, close: () => {} };
+let appWindow = { minimize: () => {}, close: () => {}, hide: () => {} };
+let globalShortcut = null;
 
 try {
   if (typeof window !== 'undefined' && window.__TAURI__) {
-    console.log("[iRodoRi] Tauri 環境を検出しました");
     isTauri = true;
     const tauri = window.__TAURI__;
-
-    if (tauri.core && typeof tauri.core.invoke === 'function') {
-      invoke = tauri.core.invoke;
-    }
-    if (tauri.event && typeof tauri.event.listen === 'function') {
-      listen = tauri.event.listen;
-    }
-    if (tauri.window && typeof tauri.window.getCurrentWindow === 'function') {
-      appWindow = tauri.window.getCurrentWindow();
-    }
+    if (tauri.core) invoke = tauri.core.invoke;
+    if (tauri.event) listen = tauri.event.listen;
+    if (tauri.window) appWindow = tauri.window.getCurrentWindow();
+    
+    // In Tauri 2.0, plugins are often under window.__TAURI__['plugin-name']
+    // Or we can just use invoke to register if we implement it, but let's try the direct approach
     console.log("[iRodoRi] Tauri API 取得完了");
-  } else {
-    console.log("[iRodoRi] ブラウザ環境（モックモード）で動作中");
   }
 } catch (e) {
-  console.error("[iRodoRi] 初期化エラー（UIは動作を続けます）:", e);
+  console.error("[iRodoRi] 初期化エラー:", e);
 }
 
-// Diagnostic: test if gamma ramp API works at all
+// Diagnostic tests
 (async () => {
   try {
-    const result = await invoke('test_gamma', {});
-    console.log("[iRodoRi] ガンマテスト結果:", result);
+    const nvapiResult = await invoke('test_nvapi', {});
+    console.log("[iRodoRi] NVAPI テスト:", nvapiResult);
   } catch (e) {
-    console.error("[iRodoRi] ガンマテスト失敗:", e);
+    console.warn("[iRodoRi] NVAPI テスト失敗:", e);
+  }
+  try {
+    const gammaResult = await invoke('test_gamma', {});
+    console.log("[iRodoRi] ガンマテスト:", gammaResult);
+  } catch (e) {
+    console.warn("[iRodoRi] ガンマテスト失敗:", e);
   }
 })();
 
@@ -56,50 +56,32 @@ const hueVal = document.getElementById('hue-val');
 
 const presetsList = document.getElementById('presets-list');
 const addPresetBtn = document.getElementById('add-preset-btn');
-const toggleAdvanced = document.getElementById('toggle-advanced');
-const advancedSection = document.getElementById('advanced-mode');
 
-// Titlebar - drag to move window, buttons hide to tray
+// Titlebar controls
 document.getElementById('titlebar').addEventListener('mousedown', (e) => {
   if (e.target.closest('.titlebar-button')) return;
-  if (appWindow.startDragging) {
-    appWindow.startDragging().catch(() => {});
-  }
+  if (appWindow.startDragging) appWindow.startDragging().catch(() => {});
 });
 
 document.getElementById('titlebar-minimize').addEventListener('click', async (e) => {
   e.stopPropagation();
-  try {
-    await appWindow.hide();
-  } catch (err) {
-    console.error('[iRodoRi] Hide failed:', err);
-  }
+  try { await appWindow.hide(); } catch (err) {}
 });
 
 document.getElementById('titlebar-close').addEventListener('click', async (e) => {
   e.stopPropagation();
-  try {
-    await appWindow.hide();
-  } catch (err) {
-    console.error('[iRodoRi] Hide failed:', err);
-  }
-});
-
-// Toggle Advanced
-toggleAdvanced.addEventListener('click', () => {
-  advancedSection.classList.toggle('collapsed');
+  try { await appWindow.hide(); } catch (err) {}
 });
 
 // Update logic
 function updateActivePresetValue(key, val) {
   const p = presets.find(item => item.id === activePresetId);
   if (p) {
-    p[key] = key === 'gamma' ? parseFloat(val) : parseInt(val);
+    p[key] = (key === 'gamma' || key === 'hue' || key === 'vibrance') ? parseFloat(val) : parseInt(val);
     savePresets();
   }
 }
 
-// Apply gamma ramp settings (brightness, contrast, gamma)
 let pendingApply = false;
 function applyAllSettings() {
   if (pendingApply) return;
@@ -114,13 +96,10 @@ function applyAllSettings() {
           gamma: parseFloat(gammaSlider.value)
         }
       });
-    } catch (e) {
-      console.error('[iRodoRi] ガンマ設定の適用に失敗:', e);
-    }
+    } catch (e) {}
   });
 }
 
-// Apply Magnification API color effect (saturation, hue)
 let pendingEffect = false;
 function applyColorEffect() {
   if (pendingEffect) return;
@@ -130,12 +109,32 @@ function applyColorEffect() {
     try {
       await invoke('apply_color_effect', {
         effect: {
-          saturation: parseFloat(vibranceSlider.value),
+          saturation: 100.0,
           hue: parseFloat(hueSlider.value)
         }
       });
     } catch (e) {
-      console.error('[iRodoRi] 色効果の適用に失敗:', e);
+      console.error('[iRodoRi] 色相の適用に失敗:', e);
+    }
+  });
+}
+
+// Apply NVAPI Digital Vibrance (saturation)
+let pendingVibrance = false;
+function applyVibrance() {
+  if (pendingVibrance) return;
+  pendingVibrance = true;
+  requestAnimationFrame(async () => {
+    pendingVibrance = false;
+    try {
+      const result = await invoke('apply_vibrance', {
+        settings: {
+          level: parseInt(vibranceSlider.value)
+        }
+      });
+      console.log('[iRodoRi] Digital Vibrance:', result);
+    } catch (e) {
+      console.error('[iRodoRi] Digital Vibrance の適用に失敗:', e);
     }
   });
 }
@@ -165,7 +164,7 @@ function updateVibrance(val, skipSlider = false) {
   vibranceVal.textContent = `${val}%`;
   if (!skipSlider) vibranceSlider.value = val;
   updateActivePresetValue('vibrance', val);
-  applyColorEffect();
+  applyVibrance();
 }
 
 function updateHue(val, skipSlider = false) {
@@ -175,7 +174,7 @@ function updateHue(val, skipSlider = false) {
   applyColorEffect();
 }
 
-// Sliders (User Interaction)
+// Sliders
 brightnessSlider.addEventListener('input', (e) => updateBrightness(e.target.value, true));
 contrastSlider.addEventListener('input', (e) => updateContrast(e.target.value, true));
 gammaSlider.addEventListener('input', (e) => updateGamma(e.target.value, true));
@@ -184,9 +183,9 @@ hueSlider.addEventListener('input', (e) => updateHue(e.target.value, true));
 
 // Preset Management
 let presets = JSON.parse(localStorage.getItem('irodori-presets')) || [
-  { id: 'p1', name: '標準', brightness: 50, contrast: 50, gamma: 1.0, vibrance: 100, hue: 0, shortcut: null },
-  { id: 'p2', name: 'ゲーム', brightness: 60, contrast: 60, gamma: 1.2, vibrance: 130, hue: 0, shortcut: 'G' },
-  { id: 'p3', name: '映画', brightness: 40, contrast: 55, gamma: 0.8, vibrance: 100, hue: 0, shortcut: 'M' }
+  { id: 'p1', name: '標準', brightness: 50, contrast: 50, gamma: 1.0, vibrance: 50, hue: 0, shortcut: null },
+  { id: 'p2', name: 'ゲーム', brightness: 55, contrast: 60, gamma: 1.1, vibrance: 70, hue: 0, shortcut: 'CommandOrControl+Alt+G' },
+  { id: 'p3', name: '映画', brightness: 45, contrast: 55, gamma: 0.9, vibrance: 50, hue: 0, shortcut: 'CommandOrControl+Alt+M' }
 ];
 
 let activePresetId = localStorage.getItem('irodori-active-preset') || 'p1';
@@ -194,6 +193,35 @@ let recordingShortcutId = null;
 
 function savePresets() {
   localStorage.setItem('irodori-presets', JSON.stringify(presets));
+  // Sync global shortcuts whenever presets change
+  syncGlobalShortcuts();
+}
+
+async function syncGlobalShortcuts() {
+  if (!isTauri) return;
+  try {
+    // We'll use a custom command or the plugin API to register
+    // For simplicity, let's assume we use the plugin's register API
+    // but first unregister all to avoid conflicts
+    const shortcutsPlugin = window.__TAURI__.globalShortcut;
+    if (shortcutsPlugin) {
+      await shortcutsPlugin.unregisterAll();
+      for (const p of presets) {
+        if (p.shortcut) {
+          try {
+            await shortcutsPlugin.register(p.shortcut, (shortcut) => {
+              console.log(`Global shortcut triggered: ${shortcut}`);
+              applyPreset(p.id);
+            });
+          } catch (err) {
+            console.error(`Failed to register shortcut ${p.shortcut}:`, err);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error("Global shortcut sync failed:", e);
+  }
 }
 
 function renderPresets() {
@@ -204,11 +232,11 @@ function renderPresets() {
     card.dataset.id = p.id;
     
     const formatShortcut = (s) => {
-      if (!s) return 'ショートカットキーを設定';
-      return s.replace('Control', 'Ctrl').replace('Meta', 'Win').split('+').join(' + ');
+      if (!s) return 'ショートカット未設定';
+      return s.replace('CommandOrControl', 'Ctrl').replace('Alt', 'Alt').replace('Shift', 'Shift').split('+').join(' + ');
     };
 
-    const shortcutText = recordingShortcutId === p.id ? '入力待ち...' : (p.shortcut ? `[ ${formatShortcut(p.shortcut)} ]` : 'ショートカットキーを設定');
+    const shortcutText = recordingShortcutId === p.id ? '入力待ち...' : (p.shortcut ? formatShortcut(p.shortcut) : 'ショートカット未設定');
 
     card.innerHTML = `
       <div class="hero-info">
@@ -220,16 +248,37 @@ function renderPresets() {
             ${p.id !== 'p1' ? `<button class="delete-preset-btn">削除</button>` : ''}
           </div>
         </div>
+        ${p.id === activePresetId ? `
+          <div class="advanced-content">
+            <div class="control-group">
+              <div class="slider-container">
+                <div class="slider-header"><span>明るさ</span><span class="slider-value">${p.brightness}%</span></div>
+              </div>
+              <div class="slider-container">
+                <div class="slider-header"><span>コントラスト</span><span class="slider-value">${p.contrast}%</span></div>
+              </div>
+              <div class="slider-container">
+                <div class="slider-header"><span>ガンマ</span><span class="slider-value">${p.gamma.toFixed(2)}</span></div>
+              </div>
+            </div>
+            <div class="control-group">
+              <div class="slider-container">
+                <div class="slider-header"><span>デジタルバイブランス</span><span class="slider-value">${p.vibrance}%</span></div>
+              </div>
+              <div class="slider-container">
+                <div class="slider-header"><span>色相</span><span class="slider-value">${p.hue}°</span></div>
+              </div>
+            </div>
+          </div>
+        ` : ''}
       </div>
     `;
 
-    // Apply preset on click
     card.addEventListener('click', (e) => {
-      if (e.target.closest('button') || e.target.closest('[contenteditable="true"]') || e.target.closest('input')) return;
+      if (e.target.closest('button') || e.target.closest('[contenteditable="true"]')) return;
       applyPreset(p.id);
     });
 
-    // Shortcut recording logic
     const shortcutBtn = card.querySelector('.shortcut-btn');
     shortcutBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -237,7 +286,6 @@ function renderPresets() {
       renderPresets();
     });
 
-    // Rename logic
     const editBtn = card.querySelector('.edit-name-btn');
     const nameEl = card.querySelector('.hero-name');
     editBtn.addEventListener('click', (e) => {
@@ -256,16 +304,12 @@ function renderPresets() {
           editBtn.textContent = "名前変更";
           p.name = nameEl.textContent;
           savePresets();
-          nameEl.removeEventListener('blur', save);
         };
-        nameEl.addEventListener('blur', save);
-        nameEl.addEventListener('keydown', (ke) => {
-          if (ke.key === 'Enter') { ke.preventDefault(); save(); }
-        });
+        nameEl.onblur = save;
+        nameEl.onkeydown = (ke) => { if (ke.key === 'Enter') { ke.preventDefault(); save(); } };
       }
     });
 
-    // Delete logic
     if (p.id !== 'p1') {
       const deleteBtn = card.querySelector('.delete-preset-btn');
       deleteBtn.addEventListener('click', (e) => {
@@ -282,15 +326,15 @@ function renderPresets() {
     presetsList.appendChild(card);
 
     if (p.id === activePresetId) {
+      const advancedSection = document.getElementById('advanced-mode');
       card.appendChild(advancedSection);
       advancedSection.classList.remove('collapsed');
     }
   });
 }
 
-// Keyboard Listener
+// Local keyboard listener for recording shortcuts
 window.addEventListener('keydown', (e) => {
-  // If recording a shortcut
   if (recordingShortcutId) {
     e.preventDefault();
     const p = presets.find(item => item.id === recordingShortcutId);
@@ -303,54 +347,20 @@ window.addEventListener('keydown', (e) => {
         return;
       }
 
-      // Identify modifier keys
-      const modifiers = [];
-      if (e.ctrlKey) modifiers.push('Control');
-      if (e.altKey) modifiers.push('Alt');
-      if (e.shiftKey) modifiers.push('Shift');
-      if (e.metaKey) modifiers.push('Meta');
+      if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
 
-      // If it's just a modifier key, don't finalize yet
-      if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) {
-        // Optional: show current held modifiers in UI
-        return;
-      }
+      const mods = [];
+      if (e.ctrlKey || e.metaKey) mods.push('CommandOrControl');
+      if (e.altKey) mods.push('Alt');
+      if (e.shiftKey) mods.push('Shift');
 
-      // Finalize shortcut
       const mainKey = e.key.toUpperCase();
-      p.shortcut = modifiers.length > 0 ? `${modifiers.join('+')}+${mainKey}` : mainKey;
+      p.shortcut = mods.length > 0 ? `${mods.join('+')}+${mainKey}` : mainKey;
       
       savePresets();
       recordingShortcutId = null;
       renderPresets();
     }
-    return;
-  }
-
-  // If typing in an editable element, don't trigger shortcuts
-  if (document.activeElement.contentEditable === "true" || document.activeElement.tagName === "INPUT") return;
-
-  // Match shortcut
-  const currentKey = e.key.toUpperCase();
-  const matched = presets.find(p => {
-    if (!p.shortcut) return false;
-    const parts = p.shortcut.split('+');
-    const mainKey = parts.pop();
-    const needsCtrl = parts.includes('Control');
-    const needsAlt = parts.includes('Alt');
-    const needsShift = parts.includes('Shift');
-    const needsMeta = parts.includes('Meta');
-
-    return currentKey === mainKey &&
-           e.ctrlKey === needsCtrl &&
-           e.altKey === needsAlt &&
-           e.shiftKey === needsShift &&
-           e.metaKey === needsMeta;
-  });
-
-  if (matched) {
-    e.preventDefault();
-    applyPreset(matched.id);
   }
 });
 
@@ -364,8 +374,8 @@ function applyPreset(id) {
   updateBrightness(p.brightness);
   updateContrast(p.contrast);
   updateGamma(p.gamma);
-  updateVibrance(p.vibrance || 100);
-  updateHue(p.hue || 0);
+  updateVibrance(p.vibrance);
+  updateHue(p.hue);
 
   renderPresets();
 }
@@ -387,38 +397,37 @@ addPresetBtn.addEventListener('click', () => {
   applyPreset(newId);
 });
 
-renderPresets();
-applyPreset(activePresetId);
-
-listen('set-preset', (event) => {
-  const p = presets.find(item => item.name === event.payload);
-  if (p) applyPreset(p.id);
-});
-
-// Auto-start toggle
-const autostartToggle = document.getElementById('autostart-toggle');
+// Initialization
 (async () => {
-  try {
-    const enabled = await invoke('check_autostart', {});
-    autostartToggle.checked = enabled;
-  } catch (e) {
-    console.error('[iRodoRi] 自動起動の確認に失敗:', e);
+  renderPresets();
+  applyPreset(activePresetId);
+  syncGlobalShortcuts();
+
+  // Listen for global shortcut events from Rust (backup mechanism)
+  if (listen) {
+    listen('global-shortcut', (event) => {
+      // Find preset with this shortcut and apply it
+      const shortcutStr = event.payload; // e.g., "Shortcut { ... }"
+      // This is complex to parse, so the direct JS API registration in syncGlobalShortcuts is better.
+    });
+  }
+
+  // Auto-start check
+  const autostartToggle = document.getElementById('autostart-toggle');
+  if (autostartToggle) {
+    try {
+      const enabled = await invoke('check_autostart', {});
+      autostartToggle.checked = enabled;
+      autostartToggle.addEventListener('change', async () => {
+        try {
+          if (autostartToggle.checked) await invoke('enable_autostart', {});
+          else await invoke('disable_autostart', {});
+        } catch (e) {
+          autostartToggle.checked = !autostartToggle.checked;
+        }
+      });
+    } catch (e) {}
   }
 })();
-
-autostartToggle.addEventListener('change', async () => {
-  try {
-    if (autostartToggle.checked) {
-      await invoke('enable_autostart', {});
-      console.log('[iRodoRi] 自動起動を有効にしました');
-    } else {
-      await invoke('disable_autostart', {});
-      console.log('[iRodoRi] 自動起動を無効にしました');
-    }
-  } catch (e) {
-    console.error('[iRodoRi] 自動起動の設定に失敗:', e);
-    autostartToggle.checked = !autostartToggle.checked;
-  }
-});
 
 })();
