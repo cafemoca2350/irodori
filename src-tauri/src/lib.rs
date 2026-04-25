@@ -1,8 +1,11 @@
 use winapi::um::wingdi::{CreateDCA, DeleteDC, GetDeviceGammaRamp, SetDeviceGammaRamp};
+use winapi::um::libloaderapi::{LoadLibraryA, GetProcAddress};
 use winapi::um::errhandlingapi::GetLastError;
 use serde::Deserialize;
 use tauri::{Emitter, Manager};
 use std::ptr;
+
+// ===== Gamma Ramp (brightness, contrast, gamma) =====
 
 #[repr(C)]
 struct GammaRamp {
@@ -11,70 +14,48 @@ struct GammaRamp {
     blue: [u16; 256],
 }
 
-#[derive(Deserialize)]
-struct ColorSettings {
-    brightness: f32,
-    contrast: f32,
-    gamma: f32,
-    vibrance: f32,
-    hue: f32,
+// ===== Magnification API (saturation, hue) =====
+
+#[repr(C)]
+struct MagColorEffect {
+    transform: [[f32; 5]; 5],
 }
 
-/// Get a DC that supports gamma ramp operations
+type MagInitializeFn = unsafe extern "system" fn() -> i32;
+type MagSetFullscreenColorEffectFn = unsafe extern "system" fn(*const MagColorEffect) -> i32;
+
+// ===== Structs =====
+
+#[derive(Deserialize)]
+struct ColorSettings {
+    brightness: f32,  // 0-100, default 50
+    contrast: f32,    // 0-100, default 50
+    gamma: f32,       // 0.3-2.8, default 1.0
+}
+
+#[derive(Deserialize)]
+struct ColorEffect {
+    saturation: f32,  // 0-200, default 100 (100=neutral)
+    hue: f32,         // 0-360, default 0
+}
+
+// ===== Display DC helper =====
+
 unsafe fn get_display_dc() -> Result<winapi::shared::windef::HDC, String> {
-    // Try \\.\DISPLAY1 first (direct display device)
     let device_name = b"\\\\.\\DISPLAY1\0";
     let dc = CreateDCA(device_name.as_ptr() as *const i8, ptr::null(), ptr::null(), ptr::null());
     if !dc.is_null() {
         return Ok(dc);
     }
-
-    // Fallback: try "DISPLAY"
     let display = b"DISPLAY\0";
     let dc = CreateDCA(display.as_ptr() as *const i8, ptr::null(), ptr::null(), ptr::null());
     if !dc.is_null() {
         return Ok(dc);
     }
-
     Err(format!("Failed to get display DC (error: {})", GetLastError()))
 }
 
-/// Diagnostic: test gamma ramp API
-#[tauri::command]
-fn test_gamma() -> Result<String, String> {
-    unsafe {
-        let dc = get_display_dc()?;
-
-        let mut ramp = GammaRamp {
-            red: [0u16; 256],
-            green: [0u16; 256],
-            blue: [0u16; 256],
-        };
-
-        // Step 1: Read current ramp
-        let get_result = GetDeviceGammaRamp(dc, &mut ramp as *mut GammaRamp as *mut _);
-        if get_result == 0 {
-            let err = GetLastError();
-            DeleteDC(dc);
-            return Err(format!("GetDeviceGammaRamp failed (error: {})", err));
-        }
-
-        let info = format!(
-            "R[0]={}, R[128]={}, R[255]={}", ramp.red[0], ramp.red[128], ramp.red[255]
-        );
-
-        // Step 2: Write back unchanged
-        let set_result = SetDeviceGammaRamp(dc, &mut ramp as *mut GammaRamp as *mut _);
-        let err = GetLastError();
-        DeleteDC(dc);
-
-        if set_result == 0 {
-            return Err(format!("SetDeviceGammaRamp failed with unchanged ramp (error: {}). {}", err, info));
-        }
-
-        Ok(format!("PASSED! {}", info))
-    }
-}
+// ===== Gamma Ramp command =====
 
 #[tauri::command]
 fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
@@ -82,9 +63,7 @@ fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
         let dc = get_display_dc()?;
 
         let gamma = settings.gamma.max(0.3).min(2.8);
-        // Brightness: 0=dark, 50=neutral, 100=bright
         let brightness_gamma = 1.0 + (settings.brightness - 50.0) / 100.0;
-        // Contrast: 0=flat, 50=neutral, 100=high
         let contrast_factor = 0.5 + (settings.contrast / 100.0);
         let effective_gamma = (gamma * brightness_gamma).max(0.1).min(5.0);
 
@@ -121,6 +100,122 @@ fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
     }
     Ok(())
 }
+
+// ===== Magnification API command =====
+
+#[tauri::command]
+fn apply_color_effect(effect: ColorEffect) -> Result<(), String> {
+    unsafe {
+        // Load Magnification.dll dynamically
+        let lib = LoadLibraryA(b"Magnification.dll\0".as_ptr() as *const i8);
+        if lib.is_null() {
+            return Err(format!("Failed to load Magnification.dll (error: {})", GetLastError()));
+        }
+
+        let mag_init: MagInitializeFn = std::mem::transmute(
+            GetProcAddress(lib, b"MagInitialize\0".as_ptr() as *const i8)
+        );
+        let mag_set_color: MagSetFullscreenColorEffectFn = std::mem::transmute(
+            GetProcAddress(lib, b"MagSetFullscreenColorEffect\0".as_ptr() as *const i8)
+        );
+
+        // Initialize magnification
+        mag_init();
+
+        // Build the combined color transformation matrix
+        let matrix = build_color_matrix(effect.saturation, effect.hue);
+        let color_effect = MagColorEffect { transform: matrix };
+
+        let result = mag_set_color(&color_effect);
+        // Do NOT call MagUninitialize - the effect must persist
+
+        if result == 0 {
+            return Err(format!("MagSetFullscreenColorEffect failed (error: {})", GetLastError()));
+        }
+    }
+    Ok(())
+}
+
+/// Build a 5x5 color transformation matrix combining saturation and hue rotation
+fn build_color_matrix(saturation_pct: f32, hue_degrees: f32) -> [[f32; 5]; 5] {
+    // Saturation: map 0-200 to factor 0.0-2.0 (100 = 1.0 = neutral)
+    let s = saturation_pct / 100.0;
+
+    // Luminance weights (ITU-R BT.709)
+    let lr: f32 = 0.2126;
+    let lg: f32 = 0.7152;
+    let lb: f32 = 0.0722;
+
+    // Saturation matrix
+    let sat = [
+        [lr * (1.0 - s) + s, lg * (1.0 - s),     lb * (1.0 - s),     0.0, 0.0],
+        [lr * (1.0 - s),     lg * (1.0 - s) + s,  lb * (1.0 - s),     0.0, 0.0],
+        [lr * (1.0 - s),     lg * (1.0 - s),       lb * (1.0 - s) + s, 0.0, 0.0],
+        [0.0,                0.0,                   0.0,                 1.0, 0.0],
+        [0.0,                0.0,                   0.0,                 0.0, 1.0],
+    ];
+
+    if hue_degrees.abs() < 0.01 {
+        // No hue rotation needed
+        return sat;
+    }
+
+    // Hue rotation matrix (rotation around the (1,1,1) axis in RGB space)
+    let theta = hue_degrees * std::f32::consts::PI / 180.0;
+    let cos_a = theta.cos();
+    let sin_a = theta.sin();
+    let k: f32 = 1.0 / 3.0;
+    let sq = (k as f32).sqrt(); // sqrt(1/3)
+
+    let hue = [
+        [cos_a + k * (1.0 - cos_a),          k * (1.0 - cos_a) - sq * sin_a,  k * (1.0 - cos_a) + sq * sin_a, 0.0, 0.0],
+        [k * (1.0 - cos_a) + sq * sin_a,     cos_a + k * (1.0 - cos_a),       k * (1.0 - cos_a) - sq * sin_a, 0.0, 0.0],
+        [k * (1.0 - cos_a) - sq * sin_a,     k * (1.0 - cos_a) + sq * sin_a,  cos_a + k * (1.0 - cos_a),      0.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, 1.0],
+    ];
+
+    // Multiply: result = saturation * hue
+    multiply_5x5(&sat, &hue)
+}
+
+fn multiply_5x5(a: &[[f32; 5]; 5], b: &[[f32; 5]; 5]) -> [[f32; 5]; 5] {
+    let mut result = [[0.0f32; 5]; 5];
+    for i in 0..5 {
+        for j in 0..5 {
+            for k in 0..5 {
+                result[i][j] += a[i][k] * b[k][j];
+            }
+        }
+    }
+    result
+}
+
+// ===== Diagnostic =====
+
+#[tauri::command]
+fn test_gamma() -> Result<String, String> {
+    unsafe {
+        let dc = get_display_dc()?;
+        let mut ramp = GammaRamp { red: [0u16; 256], green: [0u16; 256], blue: [0u16; 256] };
+        let get_result = GetDeviceGammaRamp(dc, &mut ramp as *mut GammaRamp as *mut _);
+        if get_result == 0 {
+            let err = GetLastError();
+            DeleteDC(dc);
+            return Err(format!("GetDeviceGammaRamp failed (error: {})", err));
+        }
+        let info = format!("R[0]={}, R[128]={}, R[255]={}", ramp.red[0], ramp.red[128], ramp.red[255]);
+        let set_result = SetDeviceGammaRamp(dc, &mut ramp as *mut GammaRamp as *mut _);
+        let err = GetLastError();
+        DeleteDC(dc);
+        if set_result == 0 {
+            return Err(format!("SetDeviceGammaRamp failed (error: {}). {}", err, info));
+        }
+        Ok(format!("Gamma PASSED! {}", info))
+    }
+}
+
+// ===== Tauri App =====
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
@@ -161,7 +256,11 @@ pub fn run() {
                 .build(app)?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![apply_color_settings, test_gamma])
+        .invoke_handler(tauri::generate_handler![
+            apply_color_settings,
+            apply_color_effect,
+            test_gamma
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
