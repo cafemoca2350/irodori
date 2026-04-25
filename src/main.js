@@ -326,9 +326,11 @@ function renderPresets() {
     presetsList.appendChild(card);
 
     if (p.id === activePresetId) {
-      const advancedSection = document.getElementById('advanced-mode');
-      card.appendChild(advancedSection);
-      advancedSection.classList.remove('collapsed');
+      const advSection = document.getElementById('advanced-mode');
+      if (advSection) {
+        card.appendChild(advSection);
+        advSection.classList.remove('collapsed');
+      }
     }
   });
 }
