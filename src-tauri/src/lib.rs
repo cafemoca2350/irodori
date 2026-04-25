@@ -1,7 +1,6 @@
-use winapi::um::wingdi::{GetDeviceGammaRamp, SetDeviceGammaRamp};
-use winapi::um::winuser::{GetDC, ReleaseDC};
+use winapi::um::wingdi::{CreateDCA, DeleteDC, GetDeviceGammaRamp, SetDeviceGammaRamp};
 use winapi::um::errhandlingapi::GetLastError;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tauri::{Emitter, Manager};
 use std::ptr;
 
@@ -21,15 +20,30 @@ struct ColorSettings {
     hue: f32,
 }
 
-/// Diagnostic: try to read and immediately write back the current gamma ramp
+/// Get a DC that supports gamma ramp operations
+unsafe fn get_display_dc() -> Result<winapi::shared::windef::HDC, String> {
+    // Try \\.\DISPLAY1 first (direct display device)
+    let device_name = b"\\\\.\\DISPLAY1\0";
+    let dc = CreateDCA(device_name.as_ptr() as *const i8, ptr::null(), ptr::null(), ptr::null());
+    if !dc.is_null() {
+        return Ok(dc);
+    }
+
+    // Fallback: try "DISPLAY"
+    let display = b"DISPLAY\0";
+    let dc = CreateDCA(display.as_ptr() as *const i8, ptr::null(), ptr::null(), ptr::null());
+    if !dc.is_null() {
+        return Ok(dc);
+    }
+
+    Err(format!("Failed to get display DC (error: {})", GetLastError()))
+}
+
+/// Diagnostic: test gamma ramp API
 #[tauri::command]
 fn test_gamma() -> Result<String, String> {
     unsafe {
-        let hwnd = ptr::null_mut();
-        let dc = GetDC(hwnd);
-        if dc.is_null() {
-            return Err(format!("GetDC failed (error: {})", GetLastError()));
-        }
+        let dc = get_display_dc()?;
 
         let mut ramp = GammaRamp {
             red: [0u16; 256],
@@ -41,38 +55,31 @@ fn test_gamma() -> Result<String, String> {
         let get_result = GetDeviceGammaRamp(dc, &mut ramp as *mut GammaRamp as *mut _);
         if get_result == 0 {
             let err = GetLastError();
-            ReleaseDC(hwnd, dc);
+            DeleteDC(dc);
             return Err(format!("GetDeviceGammaRamp failed (error: {})", err));
         }
 
         let info = format!(
-            "Current ramp: R[0]={}, R[128]={}, R[255]={}, G[0]={}, G[255]={}, B[0]={}, B[255]={}",
-            ramp.red[0], ramp.red[128], ramp.red[255],
-            ramp.green[0], ramp.green[255],
-            ramp.blue[0], ramp.blue[255]
+            "R[0]={}, R[128]={}, R[255]={}", ramp.red[0], ramp.red[128], ramp.red[255]
         );
 
-        // Step 2: Write it back unchanged
+        // Step 2: Write back unchanged
         let set_result = SetDeviceGammaRamp(dc, &mut ramp as *mut GammaRamp as *mut _);
         let err = GetLastError();
-        ReleaseDC(hwnd, dc);
+        DeleteDC(dc);
 
         if set_result == 0 {
-            return Err(format!("SetDeviceGammaRamp failed even with unchanged ramp (error: {}). {}", err, info));
+            return Err(format!("SetDeviceGammaRamp failed with unchanged ramp (error: {}). {}", err, info));
         }
 
-        Ok(format!("Gamma ramp test PASSED. {}", info))
+        Ok(format!("PASSED! {}", info))
     }
 }
 
 #[tauri::command]
 fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
     unsafe {
-        let hwnd = ptr::null_mut();
-        let dc = GetDC(hwnd);
-        if dc.is_null() {
-            return Err(format!("Failed to get DC (error: {})", GetLastError()));
-        }
+        let dc = get_display_dc()?;
 
         let gamma = settings.gamma.max(0.3).min(2.8);
         let brightness_gamma = 1.0 + (50.0 - settings.brightness) / 100.0;
@@ -104,13 +111,10 @@ fn apply_color_settings(settings: ColorSettings) -> Result<(), String> {
 
         let result = SetDeviceGammaRamp(dc, &mut new_ramp as *mut GammaRamp as *mut _);
         let err = GetLastError();
-        ReleaseDC(hwnd, dc);
+        DeleteDC(dc);
 
         if result == 0 {
-            return Err(format!(
-                "Failed to set gamma ramp (error: {}, eff_gamma: {:.2})",
-                err, effective_gamma
-            ));
+            return Err(format!("Failed to set gamma ramp (error: {})", err));
         }
     }
     Ok(())
