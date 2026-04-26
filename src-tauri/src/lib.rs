@@ -295,6 +295,9 @@ fn test_nvapi() -> Result<String, String> {
         let qi: NvApiQueryInterfaceFn = std::mem::transmute(
             GetProcAddress(lib, b"nvapi_QueryInterface\0".as_ptr() as *const i8)
         );
+        if (qi as *const ()).is_null() {
+            return Err("nvapi_QueryInterface not found in DLL".to_string());
+        }
         let nv_init: NvApiInitializeFn = std::mem::transmute(qi(NVAPI_INITIALIZE));
         let nv_enum: NvApiEnumDisplayHandleFn = std::mem::transmute(qi(NVAPI_ENUM_DISPLAY_HANDLE));
         let nv_get_out_id: NvApiGetAssociatedDisplayOutputIdFn = std::mem::transmute(qi(NVAPI_GET_ASSOCIATED_DISPLAY_OUTPUT_ID));
@@ -382,8 +385,7 @@ pub fn run() {
 
             let menu = Menu::with_items(app, &[&show, &separator, &quit])?;
 
-            let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+            let tray_builder = TrayIconBuilder::new()
                 .menu(&menu)
                 .tooltip("iRodoRi - Display Optimizer")
                 .on_menu_event(|app, event| {
@@ -406,8 +408,15 @@ pub fn run() {
                             let _ = window.set_focus();
                         }
                     }
-                })
-                .build(app)?;
+                });
+
+            let tray_builder = if let Some(icon) = app.default_window_icon() {
+                tray_builder.icon(icon.clone())
+            } else {
+                tray_builder
+            };
+
+            let _tray = tray_builder.build(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
