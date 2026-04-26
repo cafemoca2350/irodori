@@ -42,7 +42,6 @@ body {
   backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--border-color);
   z-index: 1000;
-  -webkit-app-region: drag;
 }
 
 #titlebar-label {
@@ -57,7 +56,6 @@ body {
 .titlebar-controls {
   display: flex;
   gap: 12px;
-  -webkit-app-region: no-drag;
 }
 
 .titlebar-button {

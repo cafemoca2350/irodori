@@ -51,12 +51,6 @@ const hueSlider = document.getElementById('hue-slider');
 const presetsList = document.getElementById('presets-list');
 const addPresetBtn = document.getElementById('add-preset-btn');
 
-// Titlebar controls
-document.getElementById('titlebar').addEventListener('mousedown', (e) => {
-  if (e.target.closest('.titlebar-button')) return;
-  if (appWindow.startDragging) appWindow.startDragging().catch(() => {});
-});
-
 document.getElementById('titlebar-minimize').addEventListener('click', async (e) => {
   e.stopPropagation();
   try { await appWindow.hide(); } catch (err) {}
