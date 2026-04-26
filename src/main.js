@@ -48,12 +48,6 @@ const gammaSlider = document.getElementById('gamma-slider');
 const vibranceSlider = document.getElementById('vibrance-slider');
 const hueSlider = document.getElementById('hue-slider');
 
-const brightnessVal = document.getElementById('brightness-val');
-const contrastVal = document.getElementById('contrast-val');
-const gammaVal = document.getElementById('gamma-val');
-const vibranceVal = document.getElementById('vibrance-val');
-const hueVal = document.getElementById('hue-val');
-
 const presetsList = document.getElementById('presets-list');
 const addPresetBtn = document.getElementById('add-preset-btn');
 
@@ -140,35 +134,30 @@ function applyVibrance() {
 }
 
 function updateBrightness(val, skipSlider = false) {
-  brightnessVal.textContent = `${val}%`;
   if (!skipSlider) brightnessSlider.value = val;
   updateActivePresetValue('brightness', val);
   applyAllSettings();
 }
 
 function updateContrast(val, skipSlider = false) {
-  contrastVal.textContent = `${val}%`;
   if (!skipSlider) contrastSlider.value = val;
   updateActivePresetValue('contrast', val);
   applyAllSettings();
 }
 
 function updateGamma(val, skipSlider = false) {
-  gammaVal.textContent = parseFloat(val).toFixed(2);
   if (!skipSlider) gammaSlider.value = val;
   updateActivePresetValue('gamma', val);
   applyAllSettings();
 }
 
 function updateVibrance(val, skipSlider = false) {
-  vibranceVal.textContent = `${val}%`;
   if (!skipSlider) vibranceSlider.value = val;
   updateActivePresetValue('vibrance', val);
   applyVibrance();
 }
 
 function updateHue(val, skipSlider = false) {
-  hueVal.textContent = `${val}°`;
   if (!skipSlider) hueSlider.value = val;
   updateActivePresetValue('hue', val);
   applyColorEffect();
@@ -254,21 +243,21 @@ function renderPresets() {
           <div class="advanced-content">
             <div class="control-group">
               <div class="slider-container">
-                <div class="slider-header"><span>明るさ</span><span class="slider-value">${p.brightness}%</span></div>
+                <div class="slider-header"><span>明るさ</span></div>
               </div>
               <div class="slider-container">
-                <div class="slider-header"><span>コントラスト</span><span class="slider-value">${p.contrast}%</span></div>
+                <div class="slider-header"><span>コントラスト</span></div>
               </div>
               <div class="slider-container">
-                <div class="slider-header"><span>ガンマ</span><span class="slider-value">${p.gamma.toFixed(2)}</span></div>
+                <div class="slider-header"><span>ガンマ</span></div>
               </div>
             </div>
             <div class="control-group">
               <div class="slider-container">
-                <div class="slider-header"><span>デジタルバイブランス</span><span class="slider-value">${p.vibrance}%</span></div>
+                <div class="slider-header"><span>デジタルバイブランス</span></div>
               </div>
               <div class="slider-container">
-                <div class="slider-header"><span>色相</span><span class="slider-value">${p.hue}°</span></div>
+                <div class="slider-header"><span>色相</span></div>
               </div>
             </div>
           </div>

@@ -29,13 +29,14 @@ type MagSetFullscreenColorEffectFn = unsafe extern "system" fn(*const MagColorEf
 type NvApiQueryInterfaceFn = unsafe extern "C" fn(id: u32) -> *const ();
 type NvApiInitializeFn = unsafe extern "C" fn() -> i32;
 type NvApiEnumDisplayHandleFn = unsafe extern "C" fn(index: i32, handle: *mut i32) -> i32;
-// Non-Ex versions (simpler, more compatible)
+type NvApiGetAssociatedDisplayOutputIdFn = unsafe extern "C" fn(handle: i32, output_id: *mut u32) -> i32;
 type NvApiGetDVCInfoFn = unsafe extern "C" fn(handle: i32, output_id: u32, info: *mut NvDisplayDvcInfo) -> i32;
 type NvApiSetDVCLevelFn = unsafe extern "C" fn(handle: i32, output_id: u32, level: i32) -> i32;
 
 // NVAPI function IDs
 const NVAPI_INITIALIZE: u32 = 0x0150E828;
 const NVAPI_ENUM_DISPLAY_HANDLE: u32 = 0x9ABDD40D;
+const NVAPI_GET_ASSOCIATED_DISPLAY_OUTPUT_ID: u32 = 0xD99134D1;
 const NVAPI_GET_DVC_INFO: u32 = 0x4085DE45;
 const NVAPI_SET_DVC_LEVEL: u32 = 0x172409B4;
 
@@ -185,6 +186,7 @@ unsafe fn apply_vibrance_with_lib(lib: winapi::shared::minwindef::HMODULE, level
 
     let nv_init: NvApiInitializeFn = std::mem::transmute(query_interface(NVAPI_INITIALIZE));
     let nv_enum_display: NvApiEnumDisplayHandleFn = std::mem::transmute(query_interface(NVAPI_ENUM_DISPLAY_HANDLE));
+    let nv_get_out_id: NvApiGetAssociatedDisplayOutputIdFn = std::mem::transmute(query_interface(NVAPI_GET_ASSOCIATED_DISPLAY_OUTPUT_ID));
     let nv_get_dvc: NvApiGetDVCInfoFn = std::mem::transmute(query_interface(NVAPI_GET_DVC_INFO));
     let nv_set_dvc: NvApiSetDVCLevelFn = std::mem::transmute(query_interface(NVAPI_SET_DVC_LEVEL));
 
@@ -193,41 +195,41 @@ unsafe fn apply_vibrance_with_lib(lib: winapi::shared::minwindef::HMODULE, level
         return Err(format!("NvAPI_Initialize failed (status: {})", status));
     }
 
-    let mut display_handle: i32 = 0;
-    let status = nv_enum_display(0, &mut display_handle);
-    if status != 0 {
-        return Err(format!("NvAPI_EnumNvidiaDisplayHandle failed (status: {})", status));
+    let mut applied_count = 0;
+    let mut last_info = String::new();
+
+    for i in 0..16 {
+        let mut display_handle: i32 = 0;
+        let status = nv_enum_display(i, &mut display_handle);
+        if status != 0 { break; } // End of enumeration
+
+        let mut output_id: u32 = 0;
+        let status = nv_get_out_id(display_handle, &mut output_id);
+        if status != 0 { continue; }
+
+        let mut dvc_info = NvDisplayDvcInfo {
+            version: NV_DISPLAY_DVC_INFO_VER,
+            current_level: 0, min_level: 0, max_level: 0,
+        };
+        let status = nv_get_dvc(display_handle, output_id, &mut dvc_info);
+        if status != 0 { continue; }
+
+        let range = dvc_info.max_level - dvc_info.min_level;
+        let target = dvc_info.min_level + (level as f32 / 100.0 * range as f32) as i32;
+        let clamped = target.max(dvc_info.min_level).min(dvc_info.max_level);
+
+        let status = nv_set_dvc(display_handle, output_id, clamped);
+        if status == 0 {
+            applied_count += 1;
+            last_info = format!("Display {}: range {} to {} set to {}", i, dvc_info.min_level, dvc_info.max_level, clamped);
+        }
     }
 
-    // Get current DVC info to know min/max range
-    let mut dvc_info = NvDisplayDvcInfo {
-        version: NV_DISPLAY_DVC_INFO_VER,
-        current_level: 0,
-        min_level: 0,
-        max_level: 0,
-    };
-    let status = nv_get_dvc(display_handle, 0, &mut dvc_info);
-    if status != 0 {
-        return Err(format!("NvAPI_GetDVCInfo failed (status: {})", status));
+    if applied_count > 0 {
+        Ok(format!("Applied to {} displays. Last: {}", applied_count, last_info))
+    } else {
+        Err("No compatible NVIDIA displays found to apply Digital Vibrance.".to_string())
     }
-
-    let info = format!(
-        "DVC range: {} to {} (current: {})",
-        dvc_info.min_level, dvc_info.max_level, dvc_info.current_level
-    );
-
-    // Map user level (0-100) to actual DVC range
-    let range = dvc_info.max_level - dvc_info.min_level;
-    let target = dvc_info.min_level + (level as f32 / 100.0 * range as f32) as i32;
-    let clamped = target.max(dvc_info.min_level).min(dvc_info.max_level);
-
-    // NvAPI_SetDVCLevel takes level directly (not a struct)
-    let status = nv_set_dvc(display_handle, 0, clamped);
-    if status != 0 {
-        return Err(format!("NvAPI_SetDVCLevel failed (status: {}). {}", status, info));
-    }
-
-    Ok(format!("Digital Vibrance set to {} ({})", clamped, info))
 }
 
 // ===== Hue rotation matrix (for Magnification API) =====
@@ -293,33 +295,43 @@ fn test_nvapi() -> Result<String, String> {
         let qi: NvApiQueryInterfaceFn = std::mem::transmute(
             GetProcAddress(lib, b"nvapi_QueryInterface\0".as_ptr() as *const i8)
         );
-        if (qi as *const ()).is_null() {
-            return Err("nvapi_QueryInterface not found".to_string());
-        }
         let nv_init: NvApiInitializeFn = std::mem::transmute(qi(NVAPI_INITIALIZE));
+        let nv_enum: NvApiEnumDisplayHandleFn = std::mem::transmute(qi(NVAPI_ENUM_DISPLAY_HANDLE));
+        let nv_get_out_id: NvApiGetAssociatedDisplayOutputIdFn = std::mem::transmute(qi(NVAPI_GET_ASSOCIATED_DISPLAY_OUTPUT_ID));
+        let nv_get_dvc: NvApiGetDVCInfoFn = std::mem::transmute(qi(NVAPI_GET_DVC_INFO));
+
         let status = nv_init();
         if status != 0 {
             return Err(format!("NvAPI_Initialize failed (status: {})", status));
         }
-        let nv_enum: NvApiEnumDisplayHandleFn = std::mem::transmute(qi(NVAPI_ENUM_DISPLAY_HANDLE));
-        let mut handle: i32 = 0;
-        let status = nv_enum(0, &mut handle);
-        if status != 0 {
-            return Err(format!("NvAPI_EnumDisplayHandle failed (status: {})", status));
+
+        let mut summary = String::new();
+        for i in 0..16 {
+            let mut handle: i32 = 0;
+            if nv_enum(i, &mut handle) != 0 { break; }
+
+            let mut out_id: u32 = 0;
+            if nv_get_out_id(handle, &mut out_id) != 0 {
+                summary.push_str(&format!("[D{}] No output ID\n", i));
+                continue;
+            }
+
+            let mut info = NvDisplayDvcInfo {
+                version: NV_DISPLAY_DVC_INFO_VER,
+                current_level: 0, min_level: 0, max_level: 0,
+            };
+            if nv_get_dvc(handle, out_id, &mut info) != 0 {
+                summary.push_str(&format!("[D{}] DVC info failed\n", i));
+                continue;
+            }
+            summary.push_str(&format!("[D{}] OK! DVC: {} to {} (now {})\n", i, info.min_level, info.max_level, info.current_level));
         }
-        let nv_get_dvc: NvApiGetDVCInfoFn = std::mem::transmute(qi(NVAPI_GET_DVC_INFO));
-        let mut info = NvDisplayDvcInfo {
-            version: NV_DISPLAY_DVC_INFO_VER,
-            current_level: 0, min_level: 0, max_level: 0,
-        };
-        let status = nv_get_dvc(handle, 0, &mut info);
-        if status != 0 {
-            return Err(format!("NvAPI_GetDVCInfoEx failed (status: {})", status));
+        
+        if summary.is_empty() {
+            Ok("No displays detected.".to_string())
+        } else {
+            Ok(summary)
         }
-        Ok(format!(
-            "NVAPI OK! DVC: current={}, min={}, max={}",
-            info.current_level, info.min_level, info.max_level
-        ))
     }
 }
 
