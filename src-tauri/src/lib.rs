@@ -184,11 +184,21 @@ unsafe fn apply_vibrance_with_lib(lib: winapi::shared::minwindef::HMODULE, level
         return Err("Failed to find nvapi_QueryInterface".to_string());
     }
 
-    let nv_init: NvApiInitializeFn = std::mem::transmute(query_interface(NVAPI_INITIALIZE));
-    let nv_enum_display: NvApiEnumDisplayHandleFn = std::mem::transmute(query_interface(NVAPI_ENUM_DISPLAY_HANDLE));
-    let nv_get_out_id: NvApiGetAssociatedDisplayOutputIdFn = std::mem::transmute(query_interface(NVAPI_GET_ASSOCIATED_DISPLAY_OUTPUT_ID));
-    let nv_get_dvc: NvApiGetDVCInfoFn = std::mem::transmute(query_interface(NVAPI_GET_DVC_INFO));
-    let nv_set_dvc: NvApiSetDVCLevelFn = std::mem::transmute(query_interface(NVAPI_SET_DVC_LEVEL));
+    let p_init = query_interface(NVAPI_INITIALIZE);
+    let p_enum = query_interface(NVAPI_ENUM_DISPLAY_HANDLE);
+    let p_get_out = query_interface(NVAPI_GET_ASSOCIATED_DISPLAY_OUTPUT_ID);
+    let p_get_dvc = query_interface(NVAPI_GET_DVC_INFO);
+    let p_set_dvc = query_interface(NVAPI_SET_DVC_LEVEL);
+
+    if p_init.is_null() || p_enum.is_null() || p_get_out.is_null() || p_get_dvc.is_null() || p_set_dvc.is_null() {
+        return Err("One or more NVAPI functions not found via QueryInterface".to_string());
+    }
+
+    let nv_init: NvApiInitializeFn = std::mem::transmute(p_init);
+    let nv_enum_display: NvApiEnumDisplayHandleFn = std::mem::transmute(p_enum);
+    let nv_get_out_id: NvApiGetAssociatedDisplayOutputIdFn = std::mem::transmute(p_get_out);
+    let nv_get_dvc: NvApiGetDVCInfoFn = std::mem::transmute(p_get_dvc);
+    let nv_set_dvc: NvApiSetDVCLevelFn = std::mem::transmute(p_set_dvc);
 
     let status = nv_init();
     if status != 0 {
@@ -224,6 +234,8 @@ unsafe fn apply_vibrance_with_lib(lib: winapi::shared::minwindef::HMODULE, level
             last_info = format!("Display {}: range {} to {} set to {}", i, dvc_info.min_level, dvc_info.max_level, clamped);
         }
     }
+
+    FreeLibrary(lib);
 
     if applied_count > 0 {
         Ok(format!("Applied to {} displays. Last: {}", applied_count, last_info))
@@ -296,15 +308,28 @@ fn test_nvapi() -> Result<String, String> {
             GetProcAddress(lib, b"nvapi_QueryInterface\0".as_ptr() as *const i8)
         );
         if (qi as *const ()).is_null() {
+            FreeLibrary(lib);
             return Err("nvapi_QueryInterface not found in DLL".to_string());
         }
-        let nv_init: NvApiInitializeFn = std::mem::transmute(qi(NVAPI_INITIALIZE));
-        let nv_enum: NvApiEnumDisplayHandleFn = std::mem::transmute(qi(NVAPI_ENUM_DISPLAY_HANDLE));
-        let nv_get_out_id: NvApiGetAssociatedDisplayOutputIdFn = std::mem::transmute(qi(NVAPI_GET_ASSOCIATED_DISPLAY_OUTPUT_ID));
-        let nv_get_dvc: NvApiGetDVCInfoFn = std::mem::transmute(qi(NVAPI_GET_DVC_INFO));
+
+        let p_init = qi(NVAPI_INITIALIZE);
+        let p_enum = qi(NVAPI_ENUM_DISPLAY_HANDLE);
+        let p_get_out = qi(NVAPI_GET_ASSOCIATED_DISPLAY_OUTPUT_ID);
+        let p_get_dvc = qi(NVAPI_GET_DVC_INFO);
+
+        if p_init.is_null() || p_enum.is_null() || p_get_out.is_null() || p_get_dvc.is_null() {
+            FreeLibrary(lib);
+            return Err("One or more NVAPI functions not found via QueryInterface in test".to_string());
+        }
+
+        let nv_init: NvApiInitializeFn = std::mem::transmute(p_init);
+        let nv_enum: NvApiEnumDisplayHandleFn = std::mem::transmute(p_enum);
+        let nv_get_out_id: NvApiGetAssociatedDisplayOutputIdFn = std::mem::transmute(p_get_out);
+        let nv_get_dvc: NvApiGetDVCInfoFn = std::mem::transmute(p_get_dvc);
 
         let status = nv_init();
         if status != 0 {
+            FreeLibrary(lib);
             return Err(format!("NvAPI_Initialize failed (status: {})", status));
         }
 
@@ -330,6 +355,8 @@ fn test_nvapi() -> Result<String, String> {
             summary.push_str(&format!("[D{}] OK! DVC: {} to {} (now {})\n", i, info.min_level, info.max_level, info.current_level));
         }
         
+        FreeLibrary(lib);
+
         if summary.is_empty() {
             Ok("No displays detected.".to_string())
         } else {
