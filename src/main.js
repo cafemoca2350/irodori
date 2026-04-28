@@ -15,11 +15,17 @@ try {
     const tauri = window.__TAURI__;
     if (tauri.core) invoke = tauri.core.invoke;
     if (tauri.event) listen = tauri.event.listen;
-    if (tauri.window) appWindow = tauri.window.getCurrentWindow();
     
-    // In Tauri 2.0, plugins are often under window.__TAURI__['plugin-name']
-    // Or we can just use invoke to register if we implement it, but let's try the direct approach
-    console.log("[iRodoRi] Tauri API 取得完了");
+    // Tauri 2.0 robust window detection
+    if (tauri.window && typeof tauri.window.getCurrentWindow === 'function') {
+      appWindow = tauri.window.getCurrentWindow();
+    } else if (tauri.webviewWindow && typeof tauri.webviewWindow.getCurrent === 'function') {
+      appWindow = tauri.webviewWindow.getCurrent();
+    } else if (tauri.window && typeof tauri.window.getCurrent === 'function') {
+      appWindow = tauri.window.getCurrent();
+    }
+    
+    console.log("[iRodoRi] Tauri API 取得完了:", appWindow);
   }
 } catch (e) {
   console.error("[iRodoRi] 初期化エラー:", e);
@@ -51,14 +57,16 @@ const hueSlider = document.getElementById('hue-slider');
 const presetsList = document.getElementById('presets-list');
 const addPresetBtn = document.getElementById('add-preset-btn');
 
-document.getElementById('titlebar-minimize').addEventListener('click', async (e) => {
+document.getElementById('titlebar-minimize').addEventListener('mousedown', async (e) => {
   e.stopPropagation();
-  try { await appWindow.hide(); } catch (err) {}
+  console.log("[iRodoRi] 最小化ボタンが押されました");
+  try { await appWindow.hide(); } catch (err) { console.error("最小化エラー:", err); }
 });
 
-document.getElementById('titlebar-close').addEventListener('click', async (e) => {
+document.getElementById('titlebar-close').addEventListener('mousedown', async (e) => {
   e.stopPropagation();
-  try { await appWindow.hide(); } catch (err) {}
+  console.log("[iRodoRi] 閉じるボタンが押されました");
+  try { await appWindow.hide(); } catch (err) { console.error("終了（非表示）エラー:", err); }
 });
 
 // Update logic
